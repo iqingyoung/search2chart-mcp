@@ -17,6 +17,22 @@
 - 用 **WorkBuddy / Codex / Trae**，或想要**可交互**（hover / 缩放）图表 → 用 [`mcp/`](mcp/)
 - 两者可并存：DSH 里 `mcp/` 走链接、`dsh/` 走内联
 
+### 如何安装
+
+本仓库是**源码**，两种方式拿到本地：
+
+| 方式 | 命令 | 说明 |
+|------|------|------|
+| **git clone（当前推荐）** | `git clone https://github.com/iqingyoung/search2chart-mcp.git` | 直接拿到 `mcp/` 与 `dsh/` 两套代码，再按下方路径接入 |
+| **npx（待 npm 发布）** | `npx echarts-chart-mcp` / `npx @deepseek-ai/dsh-chart` | 目前**尚未发布到 npm**，npx 还拉不到；发布后会补。MCP server 发布后可被客户端直接 `npx` 拉起，DSH 插件仍需 clone 后拷进 profile |
+
+按路径落地：
+
+- **`mcp/`（MCP server）**：clone 后**无需 `npm install`**（零运行时依赖）。在你的客户端 MCP 配置里以 stdio 拉起 `node <仓库>/mcp/server.js` 即可（各端配置见 [`mcp/README.md`](mcp/README.md)）。
+- **`dsh/`（原生 DSH 插件）**：clone 后把 `dsh/` 目录拷到 DSH profile 的 `node_modules/@deepseek-ai/dsh-chart`（**不是 npx、也不是全局 `npm i`**），再改 `cordis.patch.yml`（详见 [`dsh/README.md`](dsh/README.md)）。
+
+一句话：**clone 是现在唯一可用的获取方式；npx 是「发布到 npm 后」的快捷方式，主要利好 `mcp/` 那条路径。**
+
 ## 核心思想：search → chart 直通
 
 agent 用自带搜索 / 本地文件取数 → 调一个工具 → 图表出现在对话里。不用切到 BI 工具、不用搭仪表盘。
