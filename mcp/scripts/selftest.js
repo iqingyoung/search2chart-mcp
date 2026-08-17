@@ -1,0 +1,65 @@
+'use strict';
+// 端到端自检：用 process.execPath 拉起 server，走一遍 MCP 握手与两路出图。
+// 用法：npm test
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
+const SERVER = path.join(__dirname, '..', 'server.js');
+const SAMPLE = path.join(__dirname, '..', 'sample.csv');
+const node = process.execPath;
+
+const requests = [
+  { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {} } },
+  { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+  { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'chart_from_data', arguments: { data: [['品牌', '市占率'], ['A', 22.1], ['B', 18.4], ['C', 15.2]], chartType: 'bar', title: '市占率示例' } } },
+  { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'list_chart_types' } },
+  { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'chart_from_file', arguments: { filePath: SAMPLE, chartType: 'pie', title: '示例饼图' } } }
+];
+
+const expectedTools = ['chart_from_data', 'chart_from_file', 'list_chart_types'];
+
+function run() {
+  const child = spawn(node, [SERVER], { stdio: ['pipe', 'pipe', 'inherit'] });
+  let out = '';
+  child.stdout.on('data', d => { out += d.toString(); });
+  child.on('close', () => {
+    const lines = out.split('\n').filter(Boolean);
+    let okInit = false;
+    let tools = [];
+    let dataFile = null;
+    let fileFile = null;
+    let typesOk = false;
+
+    for (const l of lines) {
+      let m; try { m = JSON.parse(l); } catch { continue; }
+      if (m.id === 1 && m.result && m.result.serverInfo) okInit = true;
+      if (m.id === 2 && m.result && m.result.tools) tools = m.result.tools.map(t => t.name);
+      if ((m.id === 3 || m.id === 5) && m.result && m.result.content) {
+        const txt = m.result.content[0].text;
+        const fm = txt.match(/[^\s"]+\.html/);
+        if (fm && fs.existsSync(fm[0])) {
+          if (m.id === 3) dataFile = fm[0];
+          if (m.id === 5) fileFile = fm[0];
+        }
+      }
+      if (m.id === 4 && m.result && m.result.content) typesOk = true;
+    }
+
+    const toolsOk = expectedTools.every(t => tools.includes(t));
+    const allPass = okInit && toolsOk && !!dataFile && !!fileFile && typesOk;
+
+    console.log('initialize handshake :', okInit ? 'PASS' : 'FAIL');
+    console.log('tools/list           :', toolsOk ? 'PASS (' + tools.join(', ') + ')' : 'FAIL (got ' + tools.join(',') + ')');
+    console.log('chart_from_data file :', dataFile ? 'PASS -> ' + dataFile : 'FAIL');
+    console.log('chart_from_file file :', fileFile ? 'PASS -> ' + fileFile : 'FAIL');
+    console.log('list_chart_types     :', typesOk ? 'PASS' : 'FAIL');
+    console.log('\nRESULT:', allPass ? 'ALL PASS' : 'SOME FAILED');
+    process.exit(allPass ? 0 : 1);
+  });
+
+  for (const r of requests) child.stdin.write(JSON.stringify(r) + '\n');
+  child.stdin.end();
+}
+
+run();

@@ -1,0 +1,21 @@
+{
+  "name": "echarts-chart-mcp",
+  "version": "0.1.0",
+  "description": "跨客户端 ECharts 图表 MCP server：搜索/文件数据 → 自包含可交互 HTML（DSH / Codex / WorkBuddy / Trae 通用）",
+  "main": "server.js",
+  "bin": {
+    "echarts-chart-mcp": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "fetch-echarts": "node scripts/fetch-echarts.js",
+    "test": "node scripts/selftest.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "xlsx": "^0.18.5"
+  },
+  "license": "MIT"
+}
