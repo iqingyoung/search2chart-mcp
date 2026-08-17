@@ -1,4 +1,6 @@
 # search2chart-mcp
+##Search once, chart instantly
+##搜索趋势，图表展示
 
 > Turn search / research / any tabular data into **inline charts directly inside agent conversations**. One toolkit, two integration paths.
 
