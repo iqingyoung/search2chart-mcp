@@ -33,7 +33,8 @@ function run() {
     let typesOk = false;
     let dataHasImage = false;     // id=3 默认应含 image block
     let fileHasImage = false;     // id=5 默认应含 image block
-    let lineNoImage = true;       // id=6 returnImage=false 应不含 image block
+    let dataHasMdFile = false;    // id=3 应含 ![](file://...svg) 且 svg 文件存在
+    let lineNoImage = true;       // id=6 returnImage=false 应不含 image block 与 md 图片
 
     for (const l of lines) {
       let m; try { m = JSON.parse(l); } catch { continue; }
@@ -52,23 +53,32 @@ function run() {
           if (m.id === 3) dataHasImage = true;
           if (m.id === 5) fileHasImage = true;
         }
+        // 校验 file:// markdown 图片指向真实存在的 .svg
+        const md = blocks.find(b => b.type === 'text' && /^!\[/.test(b.text));
+        if (md) {
+          const um = md.text.match(/file:\/\/\/(.+\.svg)/);
+          if (um && fs.existsSync('/' + um[1]) && m.id === 3) dataHasMdFile = true;
+        }
       }
       if (m.id === 6 && m.result && m.result.content) {
-        lineNoImage = !m.result.content.some(b => b.type === 'image');
+        const noImgBlock = !m.result.content.some(b => b.type === 'image');
+        const noMdImg = !m.result.content.some(b => b.type === 'text' && /^!\[/.test(b.text));
+        lineNoImage = noImgBlock && noMdImg;
       }
       if (m.id === 4 && m.result && m.result.content) typesOk = true;
     }
 
     const toolsOk = expectedTools.every(t => tools.includes(t));
-    const allPass = okInit && toolsOk && !!dataFile && !!fileFile && typesOk && dataHasImage && fileHasImage && lineNoImage;
+    const allPass = okInit && toolsOk && !!dataFile && !!fileFile && typesOk && dataHasImage && fileHasImage && dataHasMdFile && lineNoImage;
 
     console.log('initialize handshake :', okInit ? 'PASS' : 'FAIL');
     console.log('tools/list           :', toolsOk ? 'PASS (' + tools.join(', ') + ')' : 'FAIL (got ' + tools.join(',') + ')');
     console.log('chart_from_data file :', dataFile ? 'PASS -> ' + dataFile : 'FAIL');
     console.log('chart_from_data image:', dataHasImage ? 'PASS (image/svg+xml block)' : 'FAIL');
+    console.log('chart_from_data mdImg:', dataHasMdFile ? 'PASS (file:// .svg 内联图片)' : 'FAIL');
     console.log('chart_from_file file :', fileFile ? 'PASS -> ' + fileFile : 'FAIL');
     console.log('chart_from_file image:', fileHasImage ? 'PASS (image/svg+xml block)' : 'FAIL');
-    console.log('returnImage=false    :', lineNoImage ? 'PASS (no image block)' : 'FAIL');
+    console.log('returnImage=false    :', lineNoImage ? 'PASS (no image/md block)' : 'FAIL');
     console.log('list_chart_types     :', typesOk ? 'PASS' : 'FAIL');
     console.log('\nRESULT:', allPass ? 'ALL PASS' : 'SOME FAILED');
     process.exit(allPass ? 0 : 1);

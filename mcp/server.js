@@ -92,6 +92,23 @@ function writeChartHtml(html, title) {
   return file;
 }
 
+// 把 SVG 也落盘一份，返回绝对路径；用于生成 file:// 图片，供支持本地路径内联的客户端（如 ZCode）渲染
+function writeChartSvg(svg, title) {
+  const dir = resolveOutputDir();
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* 重试在 writeFileSync 报错 */ }
+  const base = (title || 'chart').replace(/[^\w\u4e00-\u9fff]+/g, '_').slice(0, 40) || 'chart';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const file = path.join(dir, `chart_${base}_${stamp}.svg`);
+  fs.writeFileSync(file, svg, 'utf8');
+  return file;
+}
+
+// 把绝对路径转成 file:// URL（跨平台：Windows 也用三斜线 + 正斜杠）
+function toFileUrl(absPath) {
+  const sep = absPath.split(path.sep).filter(Boolean).join('/');
+  return 'file:///' + sep;
+}
+
 function makeChart(args, table) {
   const chartType = args.chartType || 'auto';
   const type = chartType === 'auto' ? inferType(table) : chartType;
@@ -117,17 +134,24 @@ function makeChart(args, table) {
 
   const content = [{ type: 'text', text: summary }];
 
-  // 默认返回 image content block（base64 SVG），让支持内联图片的客户端直接出图；
-  // 不支持的客户端会忽略该 block 并回退到上面的路径文本。
+  // 默认返回两类图片产物，让不同客户端各取所需：
+  //   1) markdown 图片 ![](file://...) —— 支持 file:// 内联的客户端（如 ZCode）直接出图
+  //   2) image content block(base64 SVG) —— 支持 image block 的客户端（如 Claude Desktop）出图
+  // 二者都失败的客户端会回退到上面的 .html 路径文本。
   const wantImage = args.returnImage !== false;
   if (wantImage) {
     try {
       const spec = { type, title, categories, seriesList, paletteName };
       const svg = renderSVG(spec, { width, height });
+      // 落盘 .svg，生成 file:// URL 的 markdown 图片（ZCode 等客户端会内联渲染）
+      const svgFile = writeChartSvg(svg, title);
+      const mdImage = `![${title || 'chart'}](${toFileUrl(svgFile)})`;
+      content.push({ type: 'text', text: mdImage });
+      // 同时附 image content block（其他客户端用）
       const b64 = Buffer.from(svg, 'utf8').toString('base64');
       content.push({ type: 'image', data: b64, mimeType: 'image/svg+xml' });
     } catch (e) {
-      // SVG 生成失败不影响主流程，仅附一段提示
+      // 图片产物失败不影响主流程，仅附一段提示
       content.push({ type: 'text', text: '（图表预览图生成失败：' + e.message + '）' });
     }
   }
