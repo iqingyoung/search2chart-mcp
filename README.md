@@ -10,14 +10,15 @@
 
 | 路径 | 目录 | 形态 | 内联程度 | 适用 |
 |------|------|------|----------|------|
+| **通用 MCP server** | [`mcp/`](mcp/) | stdio MCP，自包含可交互 HTML + 内联 SVG（v0.2） | ✅ 对话框内联出图（ZCode / Claude Desktop / Cursor）+ 🔗 文件链接兜底 | ZCode / Claude Desktop / Cursor / WorkBuddy / Trae / Codex / DSH 通用 |
 | **原生 DSH 插件** | [`dsh/`](dsh/) | Cordis 插件，零依赖 SVG + localhost | ✅ 真·内联（图片直接进对话） | DeepSeek Harness |
-| **通用 MCP server** | [`mcp/`](mcp/) | stdio MCP，自包含可交互 HTML | 🔗 文件链接（点开即交互式图表） | DSH / WorkBuddy / Codex / Trae 通用 |
 
 ### 选哪个？
 
-- 用 **DSH** 且想要图表**直接出现在对话里**（不点链接）→ 用 [`dsh/`](dsh/)
-- 用 **WorkBuddy / Codex / Trae**，或想要**可交互**（hover / 缩放）图表 → 用 [`mcp/`](mcp/)
-- 两者可并存：DSH 里 `mcp/` 走链接、`dsh/` 走内联
+- 用 **ZCode / Claude Desktop / Cursor** 等 MCP 客户端 → 用 [`mcp/`](mcp/)，对话框直接出图
+- 用 **DSH** 且想要原生插件体验 → 用 [`dsh/`](dsh/)；DSH 里也能用 `mcp/`（走文件链接）
+- 想要**可交互**（hover / 缩放 / 切换类型）图表 → `mcp/` 落盘的 `.html` 在浏览器打开即交互式
+- 两者可并存
 
 ### 如何安装
 
@@ -39,28 +40,36 @@
 
 agent 用自带搜索 / 本地文件取数 → 调一个工具 → 图表出现在对话里。不用切到 BI 工具、不用搭仪表盘。
 
+- **`mcp/`（v0.2 起）**：模型调 `chart_from_data` → server 同步产出 SVG 与自包含 HTML → 三层返回：① MCP `image` content block（Claude Desktop/Cursor 内联）② `file://` markdown 图片（ZCode 等走模型回写内联）③ `.html` 路径兜底（终端客户端打开即交互式图表）
 - **`dsh/`**：模型调 `chart` 工具 → 插件生成 SVG → 经 localhost 暴露成 `http(s)` 图片 → DSH markdown 渲染器内联（根因：DSH 只内联 `http(s)` 图片，`file:` / `data:` 被拦截）
-- **`mcp/`**：模型调 `chart_from_data` → server 落盘自包含 HTML → 返回路径 → 宿主以链接 / 预览呈现
+
+## v0.2 新特性（mcp/）
+
+- **对话框内联出图**：三层兜底，零客户端识别。详见 [`mcp/README.md`](mcp/README.md#对话框直接内联出图)。
+- **统一米白底色 `#fafaf7`**：SVG 与 HTML 一致，避免透明背景在深色/灰白客户端不可见。
+- **清洗数据留存**：结果附带完整数据（JSON，代码块包裹），让纯文本模型（GLM-5.2 / DeepSeek 等）在上下文里继续分析，无需看图。`returnData` 参数或 `ECHARTS_RETURN_DATA` 可关。
+- **图表类型双语**：summary 同时给出中文名与英文键（如「柱状图（bar）」）。
 
 ## 目录
 
 ```
 search2chart-mcp/
-├── mcp/          # echarts-chart-mcp：跨端 MCP server（文件链接 + 可交互 HTML）
-├── dsh/          # dsh-chart：原生 DSH 内联插件（零依赖 SVG）
+├── mcp/          # echarts-chart-mcp：跨端 MCP server（内联 SVG + 可交互 HTML）
+│   └── lib/svg.js   # v0.2 新增：零依赖 SVG 渲染器（bar/line/pie）
+├── dsh/          # dsh-chart：原生 DSH 内联插件（零依赖 SVG + localhost）
 ├── LICENSE       # MIT
 └── README.md     # 本文件
 ```
 
 ## 快速开始
 
+### MCP 客户端（ZCode / Claude Desktop / Cursor 等）
+
+见 [`mcp/README.md`](mcp/README.md)：各客户端以 stdio 拉起 `node mcp/server.js`，工具返回内联图片（SVG）+ HTML 路径。ZCode 接入踩坑与配置示例见该文档。
+
 ### DSH 内联（原生插件）
 
 见 [`dsh/README.md`](dsh/README.md)：把 `dsh/` 拷到 `~/.dsh/profiles/web/node_modules/@deepseek-ai/dsh-chart`，在 `cordis.patch.yml` 的 `- insert:` 追加 `chart` 条目，重启 DSH。
-
-### 其他 agent（MCP）
-
-见 [`mcp/README.md`](mcp/README.md)：各客户端以 stdio 拉起 `node mcp/server.js`，工具返回 HTML 路径。
 
 ## License
 
