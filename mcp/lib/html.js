@@ -74,7 +74,7 @@ function renderHTML(opts) {
   const json = JSON.stringify(payload).replace(/</g, '\\u003c');
   return '<!DOCTYPE html>\n<html lang="zh">\n<head>\n<meta charset="utf-8">\n' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
-    '<style>body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:12px;background:#fff;color:#222}' +
+    '<style>body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:12px;background:#fafaf7;color:#222}' +
     '#controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:13px;color:#444}' +
     '#controls label{display:flex;gap:4px;align-items:center}#controls select,#controls input{font-size:13px;padding:3px 6px;border:1px solid #d9d9d9;border-radius:6px}' +
     '#chart{width:720px;height:420px;max-width:100%}</style>\n' +

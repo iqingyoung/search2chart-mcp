@@ -45,6 +45,12 @@ MCP 工具结果在多数宿主里走**文本通道**：宿主（如 DSH 的 mcp
 3. 同时仍附带 MCP `image` content block（base64 SVG），供 Claude Desktop / Cursor 等支持 image block 的客户端直接渲染。
 4. 都不支持时回退到 `.html` 路径文本（可点击打开交互式图表）。
 
+视觉与数据：
+
+- **统一米白底色 `#fafaf7`**：SVG 与 HTML 都用米白底，避免透明背景在深色/灰白客户端不可见。
+- **清洗数据留存**：默认在结果里附带清洗后的完整数据（JSON 数组数组，代码块包裹），让纯文本模型（GLM-5.2 / DeepSeek 等）在上下文里继续做占比/趋势/对比分析，无需看图。`returnData: false` 或环境变量 `ECHARTS_RETURN_DATA=false` 可关；超 60 行（`ECHARTS_DATA_MAX_ROWS` 可调）自动截断。
+- **图表类型双语**：summary 同时给出中文名与英文键（如「柱状图（bar）」）。
+
 > ZCode 实测：MCP 客户端把工具结果的 image block 当模型输入过滤掉，但**模型回复里的 `file://` markdown 图片能被渲染器直接显示**——因此走「模型回写」通路。
 
 各客户端表现：

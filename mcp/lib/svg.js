@@ -135,11 +135,13 @@ function renderSVG(spec, opts) {
   const width = (opts && opts.width) || 720;
   const height = (opts && opts.height) || 420;
   const colors = PALETTES[spec.paletteName] || PALETTES.default;
+  // 米白底色：避免透明背景在深色/灰白客户端（如 ZCode）不可见
+  const bg = `<rect x="0" y="0" width="${width}" height="${height}" fill="#fafaf7"/>`;
   let body = '';
   if (spec.type === 'pie') body = renderPie(spec, width, height, colors);
   else if (spec.type === 'line') body = renderLine(spec, width, height, colors);
   else body = renderBar(spec, width, height, colors);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">${bg}${body}</svg>`;
 }
 
 module.exports = { renderSVG };

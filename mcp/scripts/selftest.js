@@ -34,6 +34,8 @@ function run() {
     let dataHasImage = false;     // id=3 默认应含 image block
     let fileHasImage = false;     // id=5 默认应含 image block
     let dataHasMdFile = false;    // id=3 应含 ![](file://...svg) 且 svg 文件存在
+    let dataHasTypeName = false;  // id=3 summary 应含中文类型名（如"柱状图"）
+    let dataHasDataBlock = false; // id=3 应含清洗数据 JSON 块
     let lineNoImage = true;       // id=6 returnImage=false 应不含 image block 与 md 图片
 
     for (const l of lines) {
@@ -56,6 +58,10 @@ function run() {
         // 校验 summary 文本里含一行 ![...](file:///...svg) 且 svg 文件存在
         const um = txt.match(/file:\/\/\/(.+\.svg)/);
         if (um && fs.existsSync('/' + um[1]) && m.id === 3) dataHasMdFile = true;
+        // 校验中文类型名
+        if (m.id === 3 && /图表类型：[柱状图|折线图|饼图]/.test(txt)) dataHasTypeName = true;
+        // 校验清洗数据 JSON 块
+        if (m.id === 3 && blocks.some(b => b.type === 'text' && b.text.includes('清洗后的完整数据'))) dataHasDataBlock = true;
       }
       if (m.id === 6 && m.result && m.result.content) {
         const noImgBlock = !m.result.content.some(b => b.type === 'image');
@@ -66,13 +72,15 @@ function run() {
     }
 
     const toolsOk = expectedTools.every(t => tools.includes(t));
-    const allPass = okInit && toolsOk && !!dataFile && !!fileFile && typesOk && dataHasImage && fileHasImage && dataHasMdFile && lineNoImage;
+    const allPass = okInit && toolsOk && !!dataFile && !!fileFile && typesOk && dataHasImage && fileHasImage && dataHasMdFile && dataHasTypeName && dataHasDataBlock && lineNoImage;
 
     console.log('initialize handshake :', okInit ? 'PASS' : 'FAIL');
     console.log('tools/list           :', toolsOk ? 'PASS (' + tools.join(', ') + ')' : 'FAIL (got ' + tools.join(',') + ')');
     console.log('chart_from_data file :', dataFile ? 'PASS -> ' + dataFile : 'FAIL');
     console.log('chart_from_data image:', dataHasImage ? 'PASS (image/svg+xml block)' : 'FAIL');
     console.log('chart_from_data mdImg:', dataHasMdFile ? 'PASS (file:// .svg 内联图片)' : 'FAIL');
+    console.log('chart_from_data type :', dataHasTypeName ? 'PASS (中文类型名)' : 'FAIL');
+    console.log('chart_from_data data :', dataHasDataBlock ? 'PASS (清洗数据 JSON 块)' : 'FAIL');
     console.log('chart_from_file file :', fileFile ? 'PASS -> ' + fileFile : 'FAIL');
     console.log('chart_from_file image:', fileHasImage ? 'PASS (image/svg+xml block)' : 'FAIL');
     console.log('returnImage=false    :', lineNoImage ? 'PASS (no image/md block)' : 'FAIL');

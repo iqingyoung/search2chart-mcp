@@ -10,6 +10,25 @@ const { renderSVG } = require('./lib/svg');
 
 // 是否返回 image content block（默认开）；可由环境变量全局关闭
 const RETURN_IMAGE_DEFAULT = String(process.env.ECHARTS_RETURN_IMAGE || 'true').toLowerCase() !== 'false';
+// 是否返回完整清洗数据（默认开，供纯文本模型在上下文里继续分析）；可由环境变量全局关闭
+const RETURN_DATA_DEFAULT = String(process.env.ECHARTS_RETURN_DATA || 'true').toLowerCase() !== 'false';
+// 返回数据的最大行数（超过则截断）
+const DATA_MAX_ROWS = parseInt(process.env.ECHARTS_DATA_MAX_ROWS || '60', 10) || 60;
+
+// 类型中文名，便于模型/用户理解
+const TYPE_NAMES = { bar: '柱状图', line: '折线图', pie: '饼图' };
+
+// 把清洗后的表格序列化为紧凑 JSON 数组数组（首行表头），供模型在上下文里继续分析。
+// 用户视觉上会被代码块折叠/低调渲染，不会喧宾夺主。
+function buildDataBlock(table, maxRows) {
+  const { columns, rows } = table;
+  const total = rows.length;
+  const truncated = total > maxRows;
+  const kept = truncated ? rows.slice(0, maxRows) : rows;
+  const arr = [columns, ...kept.map(r => r.map(v => (v == null ? null : v)))];
+  const head = `（以下为清洗后的完整数据，共 ${total} 行${truncated ? `，已截断显示前 ${maxRows} 行，完整数据已落盘到 .html` : ''}，供你在后续回复中分析：占比/趋势/对比/异常值等，无需依赖图表图像）`;
+  return `${head}\n\`\`\`json\n${JSON.stringify(arr)}\n\`\`\``;
+}
 
 const SERVER = { name: 'echarts-chart-mcp', version: '0.2.0' };
 const VALID_TYPES = ['auto', 'bar', 'line', 'pie'];
@@ -34,7 +53,8 @@ const TOOLS = [
         width: { type: 'number', default: 720, description: '图表宽度(px)' },
         height: { type: 'number', default: 420, description: '图表高度(px)' },
         returnHtml: { type: 'boolean', default: false, description: '是否额外把 HTML 原文也返回（默认 false；仅当宿主能直接渲染 HTML 时才需要设为 true）' },
-        returnImage: { type: 'boolean', default: RETURN_IMAGE_DEFAULT, description: '是否返回 image content block（base64 SVG，默认 true，让支持内联图片的客户端在对话框直接出图；不支持时会被忽略，回退到下方 html 路径）' }
+        returnImage: { type: 'boolean', default: RETURN_IMAGE_DEFAULT, description: '是否返回 image content block（base64 SVG，默认 true，让支持内联图片的客户端在对话框直接出图；不支持时会被忽略，回退到下方 html 路径）' },
+        returnData: { type: 'boolean', default: RETURN_DATA_DEFAULT, description: '是否在结果里附带清洗后的完整数据（JSON 数组数组，默认 true），供纯文本模型（GLM/DeepSeek 等）在上下文里继续分析；用户视觉上会被代码块折叠' }
       },
       required: ['data']
     }
@@ -53,7 +73,8 @@ const TOOLS = [
         width: { type: 'number', default: 720 },
         height: { type: 'number', default: 420 },
         returnHtml: { type: 'boolean', default: false, description: '是否额外把 HTML 原文也返回（默认 false）' },
-        returnImage: { type: 'boolean', default: RETURN_IMAGE_DEFAULT, description: '是否返回 image content block（base64 SVG，默认 true）' }
+        returnImage: { type: 'boolean', default: RETURN_IMAGE_DEFAULT, description: '是否返回 image content block（base64 SVG，默认 true）' },
+        returnData: { type: 'boolean', default: RETURN_DATA_DEFAULT, description: '是否附带清洗后的完整数据（默认 true）' }
       },
       required: ['filePath']
     }
@@ -146,9 +167,11 @@ function makeChart(args, table) {
     ? `图表预览（请在最终回复中**原样**写回下面这一行，让用户在对话框直接看到图）：\n![${title || 'chart'}](${toFileUrl(svgFile)})`
     : '';
 
+  // 图表类型同时给出英文键与中文名，便于模型与用户双向理解
+  const typeName = TYPE_NAMES[type] || type;
   const summary =
     `图表已生成并写入文件：\n${filePath}\n` +
-    `类型=${type} | 标题="${title}" | 配色=${paletteName} | 尺寸=${width}x${height}\n` +
+    `图表类型：${typeName}（${type}） | 标题="${title}" | 配色=${paletteName} | 尺寸=${width}x${height}\n` +
     `数据：${categories.length} 个类别；序列：${seriesPreview}\n` +
     (renderLine ? renderLine + '\n' : '') +
     `在 DSH/Web 中把上面 .html 路径用反引号包成行内代码即可点击，在浏览器打开即是交互式图表。`;
@@ -163,6 +186,15 @@ function makeChart(args, table) {
   }
 
   if (args.returnHtml === true) content.push({ type: 'text', text: html });
+
+  // 清洗后的完整数据（JSON 数组数组），供纯文本模型在上下文里继续分析；
+  // 用代码块包裹，用户视觉上会被折叠/低调渲染，不会喧宾夺主。
+  if (args.returnData !== false) {
+    try {
+      content.push({ type: 'text', text: buildDataBlock(table, DATA_MAX_ROWS) });
+    } catch (e) { /* 数据序列化失败忽略 */ }
+  }
+
   content.push({ type: 'text', text: 'ECharts option (JSON):\n```json\n' + JSON.stringify(option) + '\n```' });
   return toolResult(content);
 }
