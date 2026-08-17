@@ -53,17 +53,14 @@ function run() {
           if (m.id === 3) dataHasImage = true;
           if (m.id === 5) fileHasImage = true;
         }
-        // 校验 file:// markdown 图片指向真实存在的 .svg
-        const md = blocks.find(b => b.type === 'text' && /^!\[/.test(b.text));
-        if (md) {
-          const um = md.text.match(/file:\/\/\/(.+\.svg)/);
-          if (um && fs.existsSync('/' + um[1]) && m.id === 3) dataHasMdFile = true;
-        }
+        // 校验 summary 文本里含一行 ![...](file:///...svg) 且 svg 文件存在
+        const um = txt.match(/file:\/\/\/(.+\.svg)/);
+        if (um && fs.existsSync('/' + um[1]) && m.id === 3) dataHasMdFile = true;
       }
       if (m.id === 6 && m.result && m.result.content) {
         const noImgBlock = !m.result.content.some(b => b.type === 'image');
-        const noMdImg = !m.result.content.some(b => b.type === 'text' && /^!\[/.test(b.text));
-        lineNoImage = noImgBlock && noMdImg;
+        const noMdLine = !m.result.content.some(b => b.type === 'text' && /file:\/\/\/.+\.svg/.test(b.text));
+        lineNoImage = noImgBlock && noMdLine;
       }
       if (m.id === 4 && m.result && m.result.content) typesOk = true;
     }

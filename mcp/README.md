@@ -38,30 +38,23 @@ MCP 工具结果在多数宿主里走**文本通道**：宿主（如 DSH 的 mcp
 
 ## 对话框直接内联出图
 
-从 v0.2 起，工具默认在返回里**额外**携带两类图片产物，让支持内联的客户端**在对话气泡里直接画出图表**：
+不同客户端对「工具结果里的图片」处理方式不一致：有的把 `image` content block 当多模态输入（纯文本模型会过滤掉），有的不渲染 `file://` 图片。为此 v0.2 采用**模型回写**策略：
 
-1. **markdown 图片 `![title](file:///abs/path.svg)`**：SVG 同样落盘一份，生成 `file://` URL 的 markdown 图片。**ZCode 实测支持 `file://` 内联**，可直接出图。
-2. **MCP `image` content block**（base64 SVG，`mimeType: image/svg+xml`）：供 Claude Desktop / Cursor 等支持 image block 的客户端渲染。
+1. 工具结果落盘一份 `.svg`，并在返回的文本里**给出** `![标题](file:///abs/path.svg)` 这一行 + 一句「请在最终回复中原样写回该行」的指示。
+2. 模型按指示在**最终回复**里写出该 markdown 图片 → 走客户端的 markdown 渲染通路（展示给人看），避开 MCP 多模态输入过滤。
+3. 同时仍附带 MCP `image` content block（base64 SVG），供 Claude Desktop / Cursor 等支持 image block 的客户端直接渲染。
+4. 都不支持时回退到 `.html` 路径文本（可点击打开交互式图表）。
 
-两层都失败的客户端会回退到 `.html` 路径文本。
-
-设计要点：
-
-- **分层兜底、零识别**：不依赖任何客户端嗅探。markdown 图片、image block、`.html` 路径文本**同时返回**，各客户端按能力各取所需。
-- **可关闭**：调用时传 `returnImage: false` 只拿文本结果；或用环境变量 `ECHARTS_RETURN_IMAGE=false` 全局关闭。
-- **SVG 由零依赖渲染器 `lib/svg.js` 产出**（bar/line/pie，配色与 HTML 一致），无浏览器/headless 依赖，跨平台。
-- **失败不阻断**：SVG 生成若异常，只在结果里附一段提示文本，主流程（写文件 + 返回路径）照常完成。
-
-> ZCode 注意：实测其 MCP 客户端**不会渲染** `image` content block（丢弃非文本块），但**会渲染**文本中的 `file://` markdown 图片——因此 ZCode 走第 1 层出图。
+> ZCode 实测：MCP 客户端把工具结果的 image block 当模型输入过滤掉，但**模型回复里的 `file://` markdown 图片能被渲染器直接显示**——因此走「模型回写」通路。
 
 各客户端表现：
 
-| 客户端 | markdown file:// 图片 | image content block | 路径文本兜底 |
+| 客户端 | image block 内联 | 模型回写 file:// 图片 | 路径文本兜底 |
 |---|---|---|---|
-| ZCode | ✅（实测） | ❌（MCP 客户端丢弃非文本块） | ✅ |
-| Claude Desktop / Cursor | 取决于客户端是否放行 file:// | ✅ | ✅ |
-| Codex CLI / Claude Code（终端） | ❌（终端不渲染像素） | ❌（透传模型或降级占位文本） | ✅ 落盘 .html |
-| DSH（MCP 通道） | ❌（sanitizeUrl 拦截 file:） | ❌（extractText 丢弃非文本块） | ✅ 路径变可点击链接；或改用 `dsh/` 原生插件 |
+| ZCode | ❌（过滤） | ✅（实测） | ✅ |
+| Claude Desktop / Cursor | ✅ | 取决于客户端 | ✅ |
+| Codex CLI / Claude Code（终端） | ❌（终端不渲染像素） | ❌ | ✅ 落盘 .html |
+| DSH（MCP 通道） | ❌ | ❌（sanitizeUrl 拦截 file:） | ✅ 路径变可点击链接；或改用 `dsh/` 原生插件 |
 
 ## 运行
 

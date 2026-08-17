@@ -18,7 +18,7 @@ const VALID_PALETTES = Object.keys(PALETTES);
 const TOOLS = [
   {
     name: 'chart_from_data',
-    description: '根据结构化数据生成自包含、可交互的 ECharts 图表，并写入一个 .html 文件。返回：①图表的 image content block（base64 SVG，支持内联渲染的客户端会在对话框直接出图）②该 .html 文件的【绝对路径】文本 + 数据概要 + ECharts option。不支持图片内联的客户端会自动忽略 image 块并回退到路径文本。',
+    description: '根据结构化数据生成自包含、可交互的 ECharts 图表，并写入一个 .html 文件。返回：①图表的 image content block（base64 SVG，支持内联渲染的客户端会在对话框直接出图）②该 .html 文件的【绝对路径】文本 + 数据概要 + ECharts option。不支持图片内联的客户端会自动忽略 image 块并回退到路径文本。结果文本里会含一行 `![标题](file://...svg)`，请在最终回复中**原样写回**该行，让支持 file:// 图片的客户端（如 ZCode）在对话框直接渲染图表。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -41,7 +41,7 @@ const TOOLS = [
   },
   {
     name: 'chart_from_file',
-    description: '读取本地 CSV / TSV / XLSX 生成 ECharts 图表并写入 .html 文件。第一列作类别轴，其余列作数值序列（多列即多序列）。返回【绝对路径】+ 概要。WPS 请先另存为 .xlsx。最终回复用反引号写出路径即可点击打开。',
+    description: '读取本地 CSV / TSV / XLSX 生成 ECharts 图表并写入 .html 文件。第一列作类别轴，其余列作数值序列（多列即多序列）。返回【绝对路径】+ 概要。WPS 请先另存为 .xlsx。结果文本里会含一行 `![标题](file://...svg)`，请在最终回复中原样写回该行，让支持 file:// 图片的客户端在对话框直接渲染图表；另用反引号写出 .html 路径可点击打开交互式图表。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -126,34 +126,40 @@ function makeChart(args, table) {
   const seriesPreview = seriesList
     .map(s => `${s.name}: [${s.data.slice(0, 6).join(', ')}${s.data.length > 6 ? '…' : ''}]`)
     .join('; ');
-  const summary =
-    `图表已生成并写入文件：\n${filePath}\n` +
-    `类型=${type} | 标题="${title}" | 配色=${paletteName} | 尺寸=${width}x${height}\n` +
-    `数据：${categories.length} 个类别；序列：${seriesPreview}\n` +
-    `在 DSH/Web 中把上面路径用反引号包成行内代码即可点击，在浏览器打开即是交互式图表。`;
 
-  const content = [{ type: 'text', text: summary }];
-
-  // 默认返回两类图片产物，让不同客户端各取所需：
-  //   1) markdown 图片 ![](file://...) —— 支持 file:// 内联的客户端（如 ZCode）直接出图
-  //   2) image content block(base64 SVG) —— 支持 image block 的客户端（如 Claude Desktop）出图
-  // 二者都失败的客户端会回退到上面的 .html 路径文本。
+  // SVG 也落盘一份；路径同时用于「模型回复里渲染」与「image block」两条通路。
+  let svgFile = '';
+  let svg = '';
   const wantImage = args.returnImage !== false;
   if (wantImage) {
     try {
       const spec = { type, title, categories, seriesList, paletteName };
-      const svg = renderSVG(spec, { width, height });
-      // 落盘 .svg，生成 file:// URL 的 markdown 图片（ZCode 等客户端会内联渲染）
-      const svgFile = writeChartSvg(svg, title);
-      const mdImage = `![${title || 'chart'}](${toFileUrl(svgFile)})`;
-      content.push({ type: 'text', text: mdImage });
-      // 同时附 image content block（其他客户端用）
-      const b64 = Buffer.from(svg, 'utf8').toString('base64');
-      content.push({ type: 'image', data: b64, mimeType: 'image/svg+xml' });
-    } catch (e) {
-      // 图片产物失败不影响主流程，仅附一段提示
-      content.push({ type: 'text', text: '（图表预览图生成失败：' + e.message + '）' });
-    }
+      svg = renderSVG(spec, { width, height });
+      svgFile = writeChartSvg(svg, title);
+    } catch (e) { /* 落空则在下面用文本提示 */ }
+  }
+
+  // 关键设计：工具结果只返回「文本」，避免某些 MCP 客户端把图片当模型输入过滤掉。
+  // 文本里直接给出最终要渲染的 markdown 图片字面量，让模型在「最终回复」原样写回——
+  // 模型回复通路由客户端 markdown 渲染器处理，不走 MCP 多模态输入过滤。
+  const renderLine = svgFile
+    ? `图表预览（请在最终回复中**原样**写回下面这一行，让用户在对话框直接看到图）：\n![${title || 'chart'}](${toFileUrl(svgFile)})`
+    : '';
+
+  const summary =
+    `图表已生成并写入文件：\n${filePath}\n` +
+    `类型=${type} | 标题="${title}" | 配色=${paletteName} | 尺寸=${width}x${height}\n` +
+    `数据：${categories.length} 个类别；序列：${seriesPreview}\n` +
+    (renderLine ? renderLine + '\n' : '') +
+    `在 DSH/Web 中把上面 .html 路径用反引号包成行内代码即可点击，在浏览器打开即是交互式图表。`;
+
+  const content = [{ type: 'text', text: summary }];
+
+  // 仍附带 image content block：支持它的客户端（Claude Desktop / Cursor 等）可直接内联。
+  // 不支持的客户端（如 ZCode）会忽略它，并依赖上面让模型回写 markdown 图片的通路。
+  if (wantImage && svg) {
+    const b64 = Buffer.from(svg, 'utf8').toString('base64');
+    content.push({ type: 'image', data: b64, mimeType: 'image/svg+xml' });
   }
 
   if (args.returnHtml === true) content.push({ type: 'text', text: html });
