@@ -36,6 +36,32 @@ MCP 工具结果在多数宿主里走**文本通道**：宿主（如 DSH 的 mcp
 
 图表文件默认写入 `os.tmpdir()/echarts-charts/`，可用环境变量 `ECHARTS_CHARTS_DIR` 覆盖（例如设成你的工作区 `charts/` 目录，产物就落在该目录）。
 
+## 对话框直接内联出图
+
+不同客户端对「工具结果里的图片」处理方式不一致：有的把 `image` content block 当多模态输入（纯文本模型会过滤掉），有的不渲染 `file://` 图片。为此 v0.2 采用**模型回写**策略：
+
+1. 工具结果落盘一份 `.svg`，并在返回的文本里**给出** `![标题](file:///abs/path.svg)` 这一行 + 一句「请在最终回复中原样写回该行」的指示。
+2. 模型按指示在**最终回复**里写出该 markdown 图片 → 走客户端的 markdown 渲染通路（展示给人看），避开 MCP 多模态输入过滤。
+3. 同时仍附带 MCP `image` content block（base64 SVG），供 Claude Desktop / Cursor 等支持 image block 的客户端直接渲染。
+4. 都不支持时回退到 `.html` 路径文本（可点击打开交互式图表）。
+
+视觉与数据：
+
+- **统一米白底色 `#fafaf7`**：SVG 与 HTML 都用米白底，避免透明背景在深色/灰白客户端不可见。
+- **清洗数据留存**：默认在结果里附带清洗后的完整数据（JSON 数组数组，代码块包裹），让纯文本模型（GLM-5.2 / DeepSeek 等）在上下文里继续做占比/趋势/对比分析，无需看图。`returnData: false` 或环境变量 `ECHARTS_RETURN_DATA=false` 可关；超 60 行（`ECHARTS_DATA_MAX_ROWS` 可调）自动截断。
+- **图表类型双语**：summary 同时给出中文名与英文键（如「柱状图（bar）」）。
+
+> ZCode 实测：MCP 客户端把工具结果的 image block 当模型输入过滤掉，但**模型回复里的 `file://` markdown 图片能被渲染器直接显示**——因此走「模型回写」通路。
+
+各客户端表现：
+
+| 客户端 | image block 内联 | 模型回写 file:// 图片 | 路径文本兜底 |
+|---|---|---|---|
+| ZCode | ❌（过滤） | ✅（实测） | ✅ |
+| Claude Desktop / Cursor | ✅ | 取决于客户端 | ✅ |
+| Codex CLI / Claude Code（终端） | ❌（终端不渲染像素） | ❌ | ✅ 落盘 .html |
+| DSH（MCP 通道） | ❌ | ❌（sanitizeUrl 拦截 file:） | ✅ 路径变可点击链接；或改用 `dsh/` 原生插件 |
+
 ## 运行
 
 ```bash
@@ -46,7 +72,38 @@ npm test                  # 可选：端到端自检（initialize / tools/list /
 
 ## 接入各客户端
 
-所有客户端统一用 stdio 拉起 `node <绝对路径>/server.js`。
+所有客户端统一用 stdio 拉起 `node <绝对路径>/mcp/server.js`（注意 `mcp/` 子目录，server.js 在 `mcp/` 下，不在仓库根）。
+
+> **路径坑**：本仓库根有 `mcp/` 和 `dsh/` 两个子目录。MCP server 入口是 `mcp/server.js`，不是根目录的 `server.js`。所有接入配置里的 args 都要写完整路径 `.../search2chart-mcp/mcp/server.js`。
+
+### ZCode
+
+ZCode 的 MCP 配置在 `.zcode` 体系下，分 workspace 和 user 两个 scope。
+
+在 `<repo>/.zcode/config.json`（workspace scope，仅当前项目生效）或 `~/.zcode/cli/config.json`（user scope，全局生效）的 `mcp.servers` 下新增：
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "echarts-chart-mcp": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["/abs/path/to/search2chart-mcp/mcp/server.js"],
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+**接入踩坑（实测）**：
+
+1. **必须完全退出 ZCode 再重开**：不是新建会话，是退出整个应用/进程再打开。MCP server 在会话启动时连接，当前会话无法热加载新配置。
+2. **command 用 `node` 依赖 PATH**：若启动失败（设置 → MCP 显示 failed / `spawn node ENOENT`），用 `which node` 查绝对路径（如 `/usr/local/bin/node`、`~/.nvm/versions/node/v20.x.x/bin/node`），填进 `command` 字段。
+3. **schema 严格**：配置里多余的未知字段会导致整个 server 被静默丢弃（不报错但不加载）。只保留 `type` / `command` / `args` / `enabled` / `cwd` / `env` / `timeoutMs`。
+4. **图片不走 MCP image block**：ZCode 的 MCP 客户端会把工具结果的 `image` content block 当作多模态模型输入处理，纯文本模型（如 GLM-5.2）会过滤掉。本 server 采用「模型回写」策略——工具结果里给出 `![标题](file://...svg)` 字面量并指示模型在最终回复中原样写回，走 ZCode 的 markdown 渲染通路（展示给人看），绕开 MCP 输入过滤。**重启后调用工具，模型回复里会直接显示图表。**
+5. **验证连接**：重启后进入 设置 → MCP，应看到 `echarts-chart-mcp` 显示为「已连接」。工具名形如 `mcp__echarts-chart-mcp__chart_from_data`。
 
 ### DeepSeek Harness (DSH)
 
@@ -63,8 +120,8 @@ DSH 用 Cordis 加载插件（**不是** `harness.yaml`）。在 profile 的 pat
         serverName: echarts-chart
         command: 'C:/abs/path/to/node.exe'
         args:
-          - 'C:/abs/path/to/echarts-chart-mcp/server.js'
-        cwd: 'C:/abs/path/to/echarts-chart-mcp'
+          - 'C:/abs/path/to/search2chart-mcp/mcp/server.js'
+        cwd: 'C:/abs/path/to/search2chart-mcp'
         failOnStartupError: false   # 务必 false，否则 server 启动失败会让 DSH 整体启动失败
         reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30000, maxAttempts: 10 }
 ```
@@ -72,7 +129,8 @@ DSH 用 Cordis 加载插件（**不是** `harness.yaml`）。在 profile 的 pat
 - **务必用 `- insert:` 包裹**：写成顶层 `- id:` 会被 DSH 当成「覆盖已有插件」，因 id 在 bundle 层不存在而静默 skip，表现就是重启后找不到、且不报错。
 - `id` 全局唯一；`serverName` 须匹配 `[A-Za-z0-9_-]{1,32}`，决定工具前缀 `mcp__echarts-chart__*`。
 - 路径用 `C:/...` 正斜杠（Windows 下 Node 接受），避免重启后相对/PATH 丢失。
-- 重启 DSH 后，会话里即可看到 `mcp__echarts-chart__chart_from_data` 等工具；让 agent 搜完数据后调用，终回复里出现可点击的 `.html` 链接，点开即图表。
+- **DSH 的 MCP 通道不渲染图片**：DSH 的 MCP 客户端会把非文本 content block 折叠成纯文本（`extractText` 丢弃），且 markdown 渲染器只放行 `http(s)` 协议（`sanitizeUrl` 拦截 `file:`/`data:`）。因此在 DSH 里只能走 `.html` 路径文本通路——终回复里用反引号包路径成可点击链接，浏览器打开即交互式图表。若要真正内联出图，改用本仓库 `dsh/` 目录下的原生 DSH 插件（走 localhost HTTP 服务 + http URL markdown 图片），见仓库根 README。
+- 重启 DSH 后，会话里即可看到 `mcp__echarts-chart__chart_from_data` 等工具。
 
 完整示例见 [`examples/dsh-cordis.patch.yml`](examples/dsh-cordis.patch.yml)。
 
@@ -81,22 +139,22 @@ DSH 用 Cordis 加载插件（**不是** `harness.yaml`）。在 profile 的 pat
 写入 `~/.workbuddy/mcp.json` 的 `mcpServers`：
 
 ```json
-{ "mcpServers": { "echarts-chart-mcp": { "command": "node", "args": ["C:/abs/path/echarts-chart-mcp/server.js"] } } }
+{ "mcpServers": { "echarts-chart-mcp": { "command": "node", "args": ["/abs/path/to/search2chart-mcp/mcp/server.js"] } } }
 ```
 
 工具返回 HTML 文件路径后，助手用 HTML 预览 / Visualizer 内联展示。
 
 ### Trae
 
-在 Trae 的 MCP 设置中加入同上的 stdio 配置（命令 `node`，参数指向 `server.js`），Web IDE 直接预览返回的 HTML（亦可设 `returnHtml: true` 直接拿到 HTML）。
+在 Trae 的 MCP 设置中加入同上的 stdio 配置（命令 `node`，参数指向 `mcp/server.js` 的绝对路径），Web IDE 直接预览返回的 HTML（亦可设 `returnHtml: true` 直接拿到 HTML）。
 
 ### Codex / Claude Code
 
 ```bash
-claude mcp add echarts -- node /abs/path/echarts-chart-mcp/server.js
+claude mcp add echarts -- node /abs/path/to/search2chart-mcp/mcp/server.js
 ```
 
-终端无内联渲染：工具会落盘 `.html`，用浏览器打开即可。
+终端无内联渲染：工具会落盘 `.html`，用浏览器打开即可。Codex 会把 image block 透传给支持图像的模型（模型不支持则降级为占位文本）。
 
 ## 示例
 
@@ -120,6 +178,7 @@ echarts-chart-mcp/
 ├── lib/
 │   ├── chart.js              # 数据归一化 + 选图推断 + ECharts option
 │   ├── html.js               # 自包含可交互 HTML（类型/配色/宽高控件）
+│   ├── svg.js                # 零依赖 SVG 渲染器（bar/line/pie）→ image content block
 │   └── parse.js              # CSV 零依赖解析；XLSX 走可选 xlsx
 ├── scripts/
 │   ├── fetch-echarts.js      # 下载 echarts 到 vendor/（离线用）

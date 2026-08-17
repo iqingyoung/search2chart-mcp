@@ -1,7 +1,7 @@
 {
   "name": "echarts-chart-mcp",
-  "version": "0.1.0",
-  "description": "跨客户端 ECharts 图表 MCP server：搜索/文件数据 → 自包含可交互 HTML（DSH / Codex / WorkBuddy / Trae 通用）",
+  "version": "0.2.0",
+  "description": "跨客户端 ECharts 图表 MCP server：搜索/文件数据 → 自包含可交互 HTML + 对话框内联图片（image content block，ZCode / Claude Desktop / Cursor / Codex / DSH 通用）",
   "main": "server.js",
   "bin": {
     "echarts-chart-mcp": "server.js"
