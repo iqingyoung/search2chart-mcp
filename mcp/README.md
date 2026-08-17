@@ -36,6 +36,28 @@ MCP 工具结果在多数宿主里走**文本通道**：宿主（如 DSH 的 mcp
 
 图表文件默认写入 `os.tmpdir()/echarts-charts/`，可用环境变量 `ECHARTS_CHARTS_DIR` 覆盖（例如设成你的工作区 `charts/` 目录，产物就落在该目录）。
 
+## 对话框直接内联出图（image content block）
+
+从 v0.2 起，工具默认在返回里**额外**携带一个 MCP `image` content block（base64 编码的 SVG，`mimeType: image/svg+xml`），让支持图片内联的客户端（ZCode、Claude Desktop、Cursor 等）**在对话气泡里直接画出图表**，无需点链接、无需打开浏览器。
+
+设计要点：
+
+- **分层兜底、零识别**：不依赖任何客户端嗅探。`image` block 与 `.html` 路径文本**同时返回**——支持图片内联的客户端渲染 image block，不支持的客户端会忽略该 block 并回退到下方路径文本，互不影响。
+- **可关闭**：调用时传 `returnImage: false` 只拿文本结果；或用环境变量 `ECHARTS_RETURN_IMAGE=false` 全局关闭。
+- **SVG 由零依赖渲染器 `lib/svg.js` 产出**（bar/line/pie，配色与 HTML 一致），无浏览器/headless 依赖，跨平台。
+- **失败不阻断**：SVG 生成若异常，只在结果里附一段提示文本，主流程（写文件 + 返回路径）照常完成。
+
+> 标准规范：MCP 协议规定工具结果可返回 `{ type: 'image', data: <base64>, mimeType }`，渲染由客户端负责。本 server 用 SVG（向量、体积小）；若某个客户端只认位图，后续可加 PNG 分支。
+
+各客户端表现：
+
+| 客户端 | image block 内联 | 路径文本兜底 |
+|---|---|---|
+| ZCode | ✅（MCP image 通路） | ✅ 文件路径文本 |
+| Claude Desktop / Cursor | ✅ | ✅ |
+| Codex CLI / Claude Code（终端） | ❌（终端不渲染像素，image 块透传给模型或降级为占位文本） | ✅ 落盘 .html |
+| DSH（MCP 通道） | ❌（其 MCP 客户端 `extractText` 丢弃非文本块） | ✅ 路径变可点击链接；或改用 `dsh/` 原生插件（见仓库根 README） |
+
 ## 运行
 
 ```bash
@@ -98,6 +120,27 @@ claude mcp add echarts -- node /abs/path/echarts-chart-mcp/server.js
 
 终端无内联渲染：工具会落盘 `.html`，用浏览器打开即可。
 
+### ZCode
+
+在 `<repo>/.zcode/config.json`（workspace scope）或 `~/.zcode/cli/config.json`（user scope）的 `mcp.servers` 下新增：
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "echarts-chart-mcp": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["/abs/path/to/echarts-chart-mcp/mcp/server.js"],
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+重启会话后工具自动连接。ZCode 会把 `image` content block 在对话框内联渲染成图表；同时附带 `.html` 路径文本作兜底。
+
 ## 示例
 
 搜索流（agent 搜完把数据喂入）：
@@ -120,6 +163,7 @@ echarts-chart-mcp/
 ├── lib/
 │   ├── chart.js              # 数据归一化 + 选图推断 + ECharts option
 │   ├── html.js               # 自包含可交互 HTML（类型/配色/宽高控件）
+│   ├── svg.js                # 零依赖 SVG 渲染器（bar/line/pie）→ image content block
 │   └── parse.js              # CSV 零依赖解析；XLSX 走可选 xlsx
 ├── scripts/
 │   ├── fetch-echarts.js      # 下载 echarts 到 vendor/（离线用）

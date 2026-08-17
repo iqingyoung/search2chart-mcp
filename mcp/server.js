@@ -6,15 +6,19 @@ const os = require('os');
 const { toTable, extractSeries, inferType, buildOption } = require('./lib/chart');
 const { renderHTML, PALETTES } = require('./lib/html');
 const { parseFile } = require('./lib/parse');
+const { renderSVG } = require('./lib/svg');
 
-const SERVER = { name: 'echarts-chart-mcp', version: '0.1.0' };
+// 是否返回 image content block（默认开）；可由环境变量全局关闭
+const RETURN_IMAGE_DEFAULT = String(process.env.ECHARTS_RETURN_IMAGE || 'true').toLowerCase() !== 'false';
+
+const SERVER = { name: 'echarts-chart-mcp', version: '0.2.0' };
 const VALID_TYPES = ['auto', 'bar', 'line', 'pie'];
 const VALID_PALETTES = Object.keys(PALETTES);
 
 const TOOLS = [
   {
     name: 'chart_from_data',
-    description: '根据结构化数据生成自包含、可交互的 ECharts 图表，并写入一个 .html 文件。返回该文件的【绝对路径】+ 数据概要 + ECharts option。请在最终回复中用反引号(行内代码)写出文件路径，DSH/Web 会将其变为可点击链接，点击即在浏览器打开交互式图表。',
+    description: '根据结构化数据生成自包含、可交互的 ECharts 图表，并写入一个 .html 文件。返回：①图表的 image content block（base64 SVG，支持内联渲染的客户端会在对话框直接出图）②该 .html 文件的【绝对路径】文本 + 数据概要 + ECharts option。不支持图片内联的客户端会自动忽略 image 块并回退到路径文本。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -29,7 +33,8 @@ const TOOLS = [
         palette: { type: 'string', enum: VALID_PALETTES, default: 'default', description: '默认配色方案' },
         width: { type: 'number', default: 720, description: '图表宽度(px)' },
         height: { type: 'number', default: 420, description: '图表高度(px)' },
-        returnHtml: { type: 'boolean', default: false, description: '是否额外把 HTML 原文也返回（默认 false；仅当宿主能直接渲染 HTML 时才需要设为 true）' }
+        returnHtml: { type: 'boolean', default: false, description: '是否额外把 HTML 原文也返回（默认 false；仅当宿主能直接渲染 HTML 时才需要设为 true）' },
+        returnImage: { type: 'boolean', default: RETURN_IMAGE_DEFAULT, description: '是否返回 image content block（base64 SVG，默认 true，让支持内联图片的客户端在对话框直接出图；不支持时会被忽略，回退到下方 html 路径）' }
       },
       required: ['data']
     }
@@ -47,7 +52,8 @@ const TOOLS = [
         palette: { type: 'string', enum: VALID_PALETTES, default: 'default' },
         width: { type: 'number', default: 720 },
         height: { type: 'number', default: 420 },
-        returnHtml: { type: 'boolean', default: false, description: '是否额外把 HTML 原文也返回（默认 false）' }
+        returnHtml: { type: 'boolean', default: false, description: '是否额外把 HTML 原文也返回（默认 false）' },
+        returnImage: { type: 'boolean', default: RETURN_IMAGE_DEFAULT, description: '是否返回 image content block（base64 SVG，默认 true）' }
       },
       required: ['filePath']
     }
@@ -65,8 +71,10 @@ function send(obj) {
 function ok(id, result) { send({ jsonrpc: '2.0', id: id, result: result }); }
 function fail(id, code, message) { send({ jsonrpc: '2.0', id: id, error: { code: code, message: message } }); }
 
-function toolResult(texts) {
-  return { content: texts.map(t => ({ type: 'text', text: t })), isError: false };
+function toolResult(content) {
+  // content: 字符串数组（纯文本）或 content block 数组（混合 text/image）
+  const arr = Array.isArray(content) ? content : [content];
+  return { content: arr.map(c => (typeof c === 'string' ? { type: 'text', text: c } : c)), isError: false };
 }
 
 function resolveOutputDir() {
@@ -107,10 +115,26 @@ function makeChart(args, table) {
     `数据：${categories.length} 个类别；序列：${seriesPreview}\n` +
     `在 DSH/Web 中把上面路径用反引号包成行内代码即可点击，在浏览器打开即是交互式图表。`;
 
-  const texts = [summary];
-  if (args.returnHtml === true) texts.push(html);
-  texts.push('ECharts option (JSON):\n```json\n' + JSON.stringify(option) + '\n```');
-  return toolResult(texts);
+  const content = [{ type: 'text', text: summary }];
+
+  // 默认返回 image content block（base64 SVG），让支持内联图片的客户端直接出图；
+  // 不支持的客户端会忽略该 block 并回退到上面的路径文本。
+  const wantImage = args.returnImage !== false;
+  if (wantImage) {
+    try {
+      const spec = { type, title, categories, seriesList, paletteName };
+      const svg = renderSVG(spec, { width, height });
+      const b64 = Buffer.from(svg, 'utf8').toString('base64');
+      content.push({ type: 'image', data: b64, mimeType: 'image/svg+xml' });
+    } catch (e) {
+      // SVG 生成失败不影响主流程，仅附一段提示
+      content.push({ type: 'text', text: '（图表预览图生成失败：' + e.message + '）' });
+    }
+  }
+
+  if (args.returnHtml === true) content.push({ type: 'text', text: html });
+  content.push({ type: 'text', text: 'ECharts option (JSON):\n```json\n' + JSON.stringify(option) + '\n```' });
+  return toolResult(content);
 }
 
 function handleCall(msg) {

@@ -14,7 +14,8 @@ const requests = [
   { jsonrpc: '2.0', id: 2, method: 'tools/list' },
   { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'chart_from_data', arguments: { data: [['品牌', '市占率'], ['A', 22.1], ['B', 18.4], ['C', 15.2]], chartType: 'bar', title: '市占率示例' } } },
   { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'list_chart_types' } },
-  { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'chart_from_file', arguments: { filePath: SAMPLE, chartType: 'pie', title: '示例饼图' } } }
+  { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'chart_from_file', arguments: { filePath: SAMPLE, chartType: 'pie', title: '示例饼图' } } },
+  { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'chart_from_data', arguments: { data: [['月', '销'], ['1', 10], ['2', 30], ['3', 25]], chartType: 'line', title: '折线', returnImage: false } } }
 ];
 
 const expectedTools = ['chart_from_data', 'chart_from_file', 'list_chart_types'];
@@ -30,29 +31,44 @@ function run() {
     let dataFile = null;
     let fileFile = null;
     let typesOk = false;
+    let dataHasImage = false;     // id=3 默认应含 image block
+    let fileHasImage = false;     // id=5 默认应含 image block
+    let lineNoImage = true;       // id=6 returnImage=false 应不含 image block
 
     for (const l of lines) {
       let m; try { m = JSON.parse(l); } catch { continue; }
       if (m.id === 1 && m.result && m.result.serverInfo) okInit = true;
       if (m.id === 2 && m.result && m.result.tools) tools = m.result.tools.map(t => t.name);
       if ((m.id === 3 || m.id === 5) && m.result && m.result.content) {
-        const txt = m.result.content[0].text;
+        const blocks = m.result.content;
+        const txt = blocks.find(b => b.type === 'text').text;
         const fm = txt.match(/[^\s"]+\.html/);
         if (fm && fs.existsSync(fm[0])) {
           if (m.id === 3) dataFile = fm[0];
           if (m.id === 5) fileFile = fm[0];
         }
+        const img = blocks.find(b => b.type === 'image');
+        if (img && img.mimeType === 'image/svg+xml' && img.data) {
+          if (m.id === 3) dataHasImage = true;
+          if (m.id === 5) fileHasImage = true;
+        }
+      }
+      if (m.id === 6 && m.result && m.result.content) {
+        lineNoImage = !m.result.content.some(b => b.type === 'image');
       }
       if (m.id === 4 && m.result && m.result.content) typesOk = true;
     }
 
     const toolsOk = expectedTools.every(t => tools.includes(t));
-    const allPass = okInit && toolsOk && !!dataFile && !!fileFile && typesOk;
+    const allPass = okInit && toolsOk && !!dataFile && !!fileFile && typesOk && dataHasImage && fileHasImage && lineNoImage;
 
     console.log('initialize handshake :', okInit ? 'PASS' : 'FAIL');
     console.log('tools/list           :', toolsOk ? 'PASS (' + tools.join(', ') + ')' : 'FAIL (got ' + tools.join(',') + ')');
     console.log('chart_from_data file :', dataFile ? 'PASS -> ' + dataFile : 'FAIL');
+    console.log('chart_from_data image:', dataHasImage ? 'PASS (image/svg+xml block)' : 'FAIL');
     console.log('chart_from_file file :', fileFile ? 'PASS -> ' + fileFile : 'FAIL');
+    console.log('chart_from_file image:', fileHasImage ? 'PASS (image/svg+xml block)' : 'FAIL');
+    console.log('returnImage=false    :', lineNoImage ? 'PASS (no image block)' : 'FAIL');
     console.log('list_chart_types     :', typesOk ? 'PASS' : 'FAIL');
     console.log('\nRESULT:', allPass ? 'ALL PASS' : 'SOME FAILED');
     process.exit(allPass ? 0 : 1);
