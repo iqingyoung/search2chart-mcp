@@ -7,10 +7,13 @@
 ## 安装
 
 ```bash
-# 方式一：npx（推荐，无需 clone）
+# 方式一：DSH 原生插件（DeepSeek Harness 用户推荐，真·内联）
+dsh plugin --profile web add dsh-chart
+
+# 方式二：npx（通用 MCP server，无需 clone）
 npx search2chart-mcp
 
-# 方式二：git clone
+# 方式三：git clone
 git clone https://github.com/iqingyoung/search2chart-mcp.git
 ```
 

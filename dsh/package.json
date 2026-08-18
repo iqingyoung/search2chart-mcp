@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-chart",
+  "name": "dsh-chart",
   "version": "0.1.0",
   "description": "原生 DSH 插件：结构化数据 → 对话内联图表（零依赖 SVG + localhost HTTP 服务）",
   "main": "index.mjs",
