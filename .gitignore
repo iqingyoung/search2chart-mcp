@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# downloaded echarts bundle (optional, fetched at build time)
+vendor/
+
+# logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# env
+.env
+.env.*

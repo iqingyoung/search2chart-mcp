@@ -1,0 +1,28 @@
+# DeepSeek Harness (DSH) 接入示例
+#
+# 用法：把下面整段追加 / 并入 ~/.dsh/profiles/<profile>/cordis.patch.yml
+#       （web profile 即 ~/.dsh/profiles/web/cordis.patch.yml）
+#
+# ⚠️ 关键：新增实例必须用 `- insert:` 包裹（与 dsh-base 自带 bundle patch 同款）。
+#    若写成顶层 `- id: ...`（覆盖式 patch），DSH 会因该 id 在 bundle 层不存在
+#    而 warn 并整条 skip —— 表现就是重启后插件列表找不到、且不报启动错。
+#
+# 把下面路径改成你本机的绝对路径（Windows 用 C:/... 正斜杠）。
+
+- insert:
+    - id: mcp-client-echarts-chart
+      name: '@deepseek-ai/dsh-mcp-client'   # 随 dsh 包预装，解析此 specifier 即可
+      config:
+        transport: stdio
+        serverName: echarts-chart          # 仅 [A-Za-z0-9_-]{1,32}，决定工具前缀 mcp__echarts-chart__*
+        command: 'C:/abs/path/to/node.exe' # 改成你的 node 绝对路径
+        args:
+          - 'C:/abs/path/to/echarts-chart-mcp/server.js'
+        cwd: 'C:/abs/path/to/echarts-chart-mcp'
+        toolCallTimeoutMs: 60000
+        failOnStartupError: false           # 务必 false：server 启动失败也不连累 DSH 启动失败
+        reconnect:
+          enabled: true
+          initialDelayMs: 500
+          maxDelayMs: 30000
+          maxAttempts: 10

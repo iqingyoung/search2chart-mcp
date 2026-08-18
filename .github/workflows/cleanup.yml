@@ -1,0 +1,64 @@
+name: Cleanup old charts
+
+on:
+  schedule:
+    # 每天 UTC 00:00 运行
+    - cron: '0 0 * * *'
+  # 也支持手动触发
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Delete old chart files
+        id: cleanup
+        run: |
+          node -e "
+          const fs = require('fs');
+          const dir = 'charts';
+          if (!fs.existsSync(dir)) { console.log('no charts dir'); process.exit(0); }
+          const files = fs.readdirSync(dir).filter(f => f.endsWith('.png'));
+          const retentionDays = parseInt(process.env.RETENTION_DAYS || '3', 10);
+          const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+          const toDelete = [];
+          for (const f of files) {
+            const m = f.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/);
+            if (!m) continue;
+            const ts = new Date(m[1].replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T\$1:\$2:\$3'));
+            if (ts.getTime() < cutoff) toDelete.push(f);
+          }
+          console.log('Files to delete:', toDelete.length);
+          for (const f of toDelete) {
+            fs.unlinkSync(dir + '/' + f);
+            console.log('  deleted', f);
+          }
+          // write output for next step
+          fs.writeFileSync('to_delete.txt', toDelete.join('\n'));
+          "
+        env:
+          RETENTION_DAYS: '3'
+
+      - name: Commit and push deletions
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -s to_delete.txt ]; then
+            git add charts/
+            git commit -m "auto-cleanup: remove $(wc -l < to_delete.txt) old chart(s) (retention: 3d)"
+            git push
+          else
+            echo "No files to delete"
+          fi
