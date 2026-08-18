@@ -27,7 +27,7 @@
 | 方式 | 命令 | 说明 |
 |------|------|------|
 | **git clone（当前推荐）** | `git clone https://github.com/iqingyoung/search2chart-mcp.git` | 直接拿到 `mcp/` 与 `dsh/` 两套代码，再按下方路径接入 |
-| **npx（待 npm 发布）** | `npx echarts-chart-mcp` / `npx @deepseek-ai/dsh-chart` | 目前**尚未发布到 npm**，npx 还拉不到；发布后会补。MCP server 发布后可被客户端直接 `npx` 拉起，DSH 插件仍需 clone 后拷进 profile |
+| **npx（推荐）** | `npx search2chart-mcp` | 直接拉起 MCP server，无需 clone |
 
 按路径落地：
 

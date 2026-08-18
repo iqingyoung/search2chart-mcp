@@ -132,7 +132,7 @@ npm test                  # 可选：端到端自检（initialize / tools/list /
 
 ## 接入各客户端
 
-所有客户端统一用 stdio 拉起 `node <绝对路径>/mcp/server.js`（注意 `mcp/` 子目录，server.js 在 `mcp/` 下，不在仓库根）。
+所有客户端统一用 stdio 拉起。**推荐用 npx**（无需 clone）：`npx search2chart-mcp`。或手动指定路径 `node <绝对路径>/mcp/server.js`（注意 `mcp/` 子目录，server.js 在 `mcp/` 下，不在仓库根）。
 
 > **路径坑**：本仓库根有 `mcp/` 和 `dsh/` 两个子目录。MCP server 入口是 `mcp/server.js`，不是根目录的 `server.js`。所有接入配置里的 args 都要写完整路径 `.../search2chart-mcp/mcp/server.js`。
 
