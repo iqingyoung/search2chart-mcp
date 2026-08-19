@@ -4,6 +4,9 @@
 
 把「任意表格数据」变成**直接内联在 agent 对话流里的图表**。零运行时依赖，多端自适应。
 
+<img width="1912" height="948" alt="image" src="https://github.com/user-attachments/assets/676c42c7-dfa0-48ff-8ec9-9f1d51a2e7b2" />
+
+
 ## 安装
 
 ```bash
