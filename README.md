@@ -1,3 +1,5 @@
+[![DSH Market](https://raw.githubusercontent.com/2BingLing/dsh-market/master/assets/readme/badge-listed-zh.svg)](https://dsh.market/)
+
 # search2chart-mcp
 
 > Turn any tabular data into **inline charts directly inside agent conversations**. Zero runtime dependencies, multi-client adaptive.
