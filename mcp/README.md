@@ -1,3 +1,5 @@
+[![MCP](https://img.shields.io/badge/MCP-search2chart--mcp-blue)](https://npmjs.com/package/search2chart-mcp)
+
 # echarts-chart-mcp
 
 > A cross-agent ECharts chart MCP server. Feed it data (from web search or a CSV/XLSX file), get back an interactive chart as a self-contained HTML file. Works with DeepSeek Harness (DSH), Codex, WorkBuddy, and Trae.
