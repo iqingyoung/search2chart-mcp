@@ -1,8 +1,9 @@
 {
   "name": "search2chart-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "跨客户端 ECharts 图表 MCP server：数据 → 自包含可交互 HTML + 对话框内联图片（data URI / localhost http / GitHub+jsDelivr CDN 公网 https）",
   "main": "server.js",
+  "mcpName": "io.github.iqingyoung/search2chart-mcp",
   "bin": {
     "search2chart-mcp": "server.js"
   },
