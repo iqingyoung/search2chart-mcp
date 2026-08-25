@@ -1,4 +1,5 @@
 [![DSH Market](https://raw.githubusercontent.com/2BingLing/dsh-market/master/assets/readme/badge-listed-zh.svg)](https://dsh.market/)
+[![MCP](https://img.shields.io/badge/MCP-search2chart--mcp-blue)](https://npmjs.com/package/search2chart-mcp) 
 [![Downloads](https://img.shields.io/npm/dm/search2chart-mcp)](https://npmjs.com/package/search2chart-mcp)
 
 # search2chart-mcp
