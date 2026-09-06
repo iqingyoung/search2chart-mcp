@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "fetch-echarts": "node scripts/fetch-echarts.js",
-    "test": "node scripts/selftest.js",
+    "test": "node scripts/unit.test.js && node scripts/selftest.js",
     "verify-cdn": "node scripts/verify_cdn.cjs"
   },
   "engines": {

@@ -18,7 +18,7 @@
 
 | 工具 | 作用 |
 |------|------|
-| `chart_from_data` | 结构化数据 → 写入图表 HTML 文件，返回**绝对路径 + 数据概要 + ECharts option** |
+| `chart_from_data` | 结构化数据 → 写入图表 HTML 文件，返回**绝对路径 + 数据概要**（完整 ECharts option 默认省略，`includeOption: true` 恢复） |
 | `chart_from_file` | CSV/XLSX 路径 → 解析后写入图表 HTML，返回路径 + 概要（首列类别轴，其余列数值序列） |
 | `list_chart_types` | 列出支持的类型 / 配色与字段约定 |
 
@@ -36,7 +36,7 @@ MCP 工具结果在多数宿主里走**文本通道**：宿主（如 DSH 的 mcp
 
 > 想让宿主直接拿到 HTML（而不是走文件链接），把工具参数 `returnHtml: true` 即可额外返回 HTML 原文——前提是宿主能渲染 HTML（如 Trae 的预览、装了 genui 的 DSH）。
 
-图表文件默认写入 `os.tmpdir()/echarts-charts/`，可用环境变量 `ECHARTS_CHARTS_DIR` 覆盖（例如设成你的工作区 `charts/` 目录，产物就落在该目录）。
+图表文件默认写入 `os.tmpdir()/echarts-charts/`，可用环境变量 `ECHARTS_CHARTS_DIR` 覆盖（例如设成你的工作区 `charts/` 目录，产物就落在该目录）。产物自动清理：超过 3 天或目录内超过 500 个文件时删除最旧者，无需手动维护。
 
 ## 对话框直接内联出图
 
@@ -55,9 +55,11 @@ MCP 工具结果在多数宿主里走**文本通道**：宿主（如 DSH 的 mcp
 |---|---|---|
 | `inline`（默认） | data URI → localhost http → file:// 自动 fallback | OpenCode / DSH / 通用 |
 | `file` | 只输出 `file://` 本地路径 | ZCode |
-| `cdn` | 上传 GitHub+jsDelivr，输出公网 https | WorkBuddy |
+| `cdn` | 上传 GitHub+jsDelivr，输出公网 https（见下方隐私说明） | WorkBuddy |
 | `all` | **测试模式**：一次返回所有格式，让用户判断哪个能显示 | 首次接入时测试 |
 | `none` | 纯文本（.html 路径 + 数据），无内联 | 纯文本模型 / 终端 |
+
+> **隐私说明（cdn 模式）**：图表含你的数据，上传到公网 GitHub 仓库后经 jsDelivr 可被任何人访问。因此 CDN **仅在显式设置 `ECHARTS_INLINE_MODE=cdn` 时启用**，不会自动兜底上传；敏感数据请勿使用 cdn 模式。
 
 ### 环境变量
 
@@ -66,6 +68,7 @@ MCP 工具结果在多数宿主里走**文本通道**：宿主（如 DSH 的 mcp
 | `ECHARTS_INLINE_MODE` | `inline` | 内联模式（inline / file / cdn / all / none） |
 | `ECHARTS_RETURN_IMAGE` | `true` | 是否返回 MCP image content block |
 | `ECHARTS_RETURN_DATA` | `true` | 是否附带清洗后完整数据 |
+| `ECHARTS_RETURN_OPTION` | `false` | 是否附带完整 ECharts option JSON（体积较大，默认省略；工具参数 `includeOption` 可单次覆盖） |
 | `ECHARTS_DATA_MAX_ROWS` | `60` | 返回数据的最大行数 |
 | `ECHARTS_DATA_URI_MAX` | `49152` | data URI 最大字节数 |
 | `SEARCH2CHART_PORT` | `18765` | 本地 HTTP 服务端口 |

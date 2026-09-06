@@ -1,6 +1,8 @@
 'use strict';
 // 零依赖 SVG 渲染器：把 chart.js 的 option 画成内联 SVG 字符串。
 // 支持 bar / line / pie；多序列分组；自带坐标轴、网格、图例。
+// 与 mcp/lib/svg.js 同源（仅 require 路径与本注释不同，勿在此文件单独改逻辑）；
+// null 数据点按缺失值处理：柱跳过、折线分段、饼图不占扇区。
 const { PALETTES } = require('./chart.js');
 
 function esc(s) {
@@ -18,10 +20,6 @@ function niceMax(v) {
   const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
   return step * pow;
 }
-function color(i) {
-  const p = PALETTES.default;
-  return p[i % p.length];
-}
 
 function axes(title, width, height, padL, padR, padT, padB, plotW, plotH, maxV) {
   let s = '';
@@ -33,7 +31,6 @@ function axes(title, width, height, padL, padR, padT, padB, plotW, plotH, maxV) 
     s += `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="#eceef1" stroke-width="1"/>`;
     s += `<text x="${padL - 8}" y="${y + 4}" text-anchor="end" font-size="11" font-family="sans-serif" fill="#8a8f99">${esc(fmt(val))}</text>`;
   }
-  // y axis line
   s += `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="#d0d3d9" stroke-width="1"/>`;
   return s;
 }
@@ -53,19 +50,20 @@ function legend(seriesList, width, padT, colors) {
   return s;
 }
 
-function renderBar(option, width, height, colors) {
-  const padL = 56, padR = 16, padT = option.title ? 44 : 22, padB = 46;
+function renderBar(spec, width, height, colors) {
+  const padL = 56, padR = 16, padT = spec.title ? 44 : 22, padB = 46;
   const plotW = width - padL - padR, plotH = height - padT - padB;
-  const { categories, seriesList } = option;
-  const all = seriesList.flatMap((s) => s.data);
+  const { categories, seriesList } = spec;
+  const all = seriesList.flatMap((s) => s.data).filter((v) => v != null);
   const maxV = niceMax(Math.max(0, ...all));
-  let s = axes(option.title, width, height, padL, padR, padT, padB, plotW, plotH, maxV);
+  let s = axes(spec.title, width, height, padL, padR, padT, padB, plotW, plotH, maxV);
   const n = categories.length || 1;
   const band = plotW / n;
   const bw = Math.min(46, (band * 0.72) / Math.max(1, seriesList.length));
   seriesList.forEach((se, si) => {
     const c = colors[si % colors.length];
     se.data.forEach((v, ci) => {
+      if (v == null) return; // 缺失值不画柱
       const cx = padL + band * (ci + 0.5);
       const x = cx - (seriesList.length * bw) / 2 + si * bw;
       const y = padT + plotH * (1 - v / maxV);
@@ -80,20 +78,31 @@ function renderBar(option, width, height, colors) {
   return s;
 }
 
-function renderLine(option, width, height, colors) {
-  const padL = 56, padR = 16, padT = option.title ? 44 : 22, padB = 46;
+function renderLine(spec, width, height, colors) {
+  const padL = 56, padR = 16, padT = spec.title ? 44 : 22, padB = 46;
   const plotW = width - padL - padR, plotH = height - padT - padB;
-  const { categories, seriesList } = option;
-  const all = seriesList.flatMap((s) => s.data);
+  const { categories, seriesList } = spec;
+  const all = seriesList.flatMap((s) => s.data).filter((v) => v != null);
   const maxV = niceMax(Math.max(0, ...all));
-  let s = axes(option.title, width, height, padL, padR, padT, padB, plotW, plotH, maxV);
+  let s = axes(spec.title, width, height, padL, padR, padT, padB, plotW, plotH, maxV);
   const n = categories.length;
   const xAt = (i) => padL + (n <= 1 ? plotW / 2 : (plotW * i) / (n - 1));
   seriesList.forEach((se, si) => {
     const c = colors[si % colors.length];
-    const pts = se.data.map((v, i) => `${xAt(i).toFixed(1)},${(padT + plotH * (1 - v / maxV)).toFixed(1)}`).join(' ');
-    s += `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2.4"/>`;
+    // 缺失值断线：按连续非空段分别绘制
+    const segs = [];
+    let seg = [];
     se.data.forEach((v, i) => {
+      if (v == null) { if (seg.length) segs.push(seg); seg = []; return; }
+      seg.push(`${xAt(i).toFixed(1)},${(padT + plotH * (1 - v / maxV)).toFixed(1)}`);
+    });
+    if (seg.length) segs.push(seg);
+    segs.forEach((pts) => {
+      if (pts.length < 2) return;
+      s += `<polyline points="${pts.join(' ')}" fill="none" stroke="${c}" stroke-width="2.4"/>`;
+    });
+    se.data.forEach((v, i) => {
+      if (v == null) return;
       s += `<circle cx="${xAt(i).toFixed(1)}" cy="${(padT + plotH * (1 - v / maxV)).toFixed(1)}" r="3" fill="${c}"/>`;
     });
   });
@@ -104,14 +113,15 @@ function renderLine(option, width, height, colors) {
   return s;
 }
 
-function renderPie(option, width, height, colors) {
-  const { seriesList } = option;
+function renderPie(spec, width, height, colors) {
+  const { categories, seriesList } = spec;
   const se = seriesList[0] || { name: '', data: [] };
-  const total = se.data.reduce((a, b) => a + b, 0) || 1;
+  const total = se.data.reduce((a, b) => a + (b ?? 0), 0) || 1;
   const cx = width * 0.36, cy = height * 0.52, r = Math.min(width * 0.26, height * 0.34);
-  let s = option.title ? `<text x="${width / 2}" y="22" text-anchor="middle" font-size="16" font-family="sans-serif" font-weight="600" fill="#1f2329">${esc(option.title)}</text>` : '';
+  let s = spec.title ? `<text x="${width / 2}" y="22" text-anchor="middle" font-size="16" font-family="sans-serif" font-weight="600" fill="#1f2329">${esc(spec.title)}</text>` : '';
   let ang = -Math.PI / 2;
   se.data.forEach((v, i) => {
+    if (v == null) return; // 缺失值不占扇区
     const a2 = ang + (2 * Math.PI * v) / total;
     const large = a2 - ang > Math.PI ? 1 : 0;
     const x1 = cx + r * Math.cos(ang), y1 = cy + r * Math.sin(ang);
@@ -124,27 +134,28 @@ function renderPie(option, width, height, colors) {
     s += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="11" font-family="sans-serif" fill="#5b6068">${pct}%</text>`;
     ang = a2;
   });
-  // legend
   const lx = width * 0.66;
   let ly = cy - se.data.length * 9;
-  const cats = option.categories;
   se.data.forEach((v, i) => {
     s += `<rect x="${lx}" y="${ly - 9}" width="11" height="11" rx="2" fill="${colors[i % colors.length]}"/>`;
-    s += `<text x="${lx + 16}" y="${ly}" dominant-baseline="middle" font-size="12" font-family="sans-serif" fill="#1f2329">${esc((cats[i] !== undefined ? String(cats[i]) : se.name + i).slice(0, 14))}</text>`;
+    s += `<text x="${lx + 16}" y="${ly}" dominant-baseline="middle" font-size="12" font-family="sans-serif" fill="#1f2329">${esc((categories[i] !== undefined ? String(categories[i]) : se.name + i).slice(0, 14))}</text>`;
     ly += 20;
   });
   return s;
 }
 
-function renderSVG(option, opts) {
+// spec: { type, title, categories, seriesList:[{name, data:[Number|null]}], paletteName }
+function renderSVG(spec, opts) {
   const width = (opts && opts.width) || 720;
   const height = (opts && opts.height) || 420;
-  const colors = PALETTES[option.paletteName] || PALETTES.default;
+  const colors = PALETTES[spec.paletteName] || PALETTES.default;
+  // 米白底色：避免透明背景在深色/灰白客户端不可见
+  const bg = `<rect x="0" y="0" width="${width}" height="${height}" fill="#fafaf7"/>`;
   let body = '';
-  if (option.type === 'pie') body = renderPie(option, width, height, colors);
-  else if (option.type === 'line') body = renderLine(option, width, height, colors);
-  else body = renderBar(option, width, height, colors);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">${body}</svg>`;
+  if (spec.type === 'pie') body = renderPie(spec, width, height, colors);
+  else if (spec.type === 'line') body = renderLine(spec, width, height, colors);
+  else body = renderBar(spec, width, height, colors);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">${bg}${body}</svg>`;
 }
 
 module.exports = { renderSVG };

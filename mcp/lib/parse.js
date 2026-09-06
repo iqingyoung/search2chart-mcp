@@ -2,6 +2,10 @@
 const fs = require('fs');
 const path = require('path');
 
+// 输入边界：超大文件直接拒绝，避免撑爆内存与解析时间
+const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_FILE_ROWS = 100000;            // 10 万行
+
 // 零依赖 CSV 解析（支持引号、转义、换行）
 function parseCSV(text) {
   const rows = [];
@@ -26,10 +30,21 @@ function parseCSV(text) {
 
 // 读取本地文件 -> 二维数组（首行通常为表头）
 function parseFile(filePath, sheet) {
+  let stat;
+  try { stat = fs.statSync(filePath); }
+  catch (e) { throw new Error('文件不存在或不可读：' + filePath); }
+  if (stat.size > MAX_FILE_BYTES) {
+    throw new Error(`文件过大（${(stat.size / 1024 / 1024).toFixed(1)}MB），上限 20MB，请精简后再试`);
+  }
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.csv' || ext === '.tsv' || ext === '.txt') {
-    const text = fs.readFileSync(filePath, 'utf8');
-    return ext === '.tsv' ? parseTSV(text) : parseCSV(text);
+    // 去除 UTF-8 BOM，否则首列名带 \uFEFF 导致列匹配失败
+    const text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+    const rows = ext === '.tsv' ? parseTSV(text) : parseCSV(text);
+    if (rows.length > MAX_FILE_ROWS) {
+      throw new Error(`数据行数 ${rows.length} 超过上限 ${MAX_FILE_ROWS}，请分段处理`);
+    }
+    return rows;
   }
   if (ext === '.xlsx' || ext === '.xls') {
     let xlsx;
@@ -41,7 +56,11 @@ function parseFile(filePath, sheet) {
     const name = sheet || wb.SheetNames[0];
     const ws = wb.Sheets[name];
     if (!ws) throw new Error('找不到工作表：' + name);
-    return xlsx.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+    const rows = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+    if (rows.length > MAX_FILE_ROWS) {
+      throw new Error(`数据行数 ${rows.length} 超过上限 ${MAX_FILE_ROWS}，请分段处理`);
+    }
+    return rows;
   }
   if (ext === '.et') {
     throw new Error('WPS .et 暂不直接支持，请先「另存为 .xlsx」再上传');

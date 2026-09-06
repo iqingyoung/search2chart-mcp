@@ -17,15 +17,23 @@ const { uploadChart } = require('./lib/upload');
 // --- 环境变量 ---
 const RETURN_IMAGE_DEFAULT = String(process.env.ECHARTS_RETURN_IMAGE || 'true').toLowerCase() !== 'false';
 const RETURN_DATA_DEFAULT = String(process.env.ECHARTS_RETURN_DATA || 'true').toLowerCase() !== 'false';
+// 完整 ECharts option 体积较大，默认不再附带；设 ECHARTS_RETURN_OPTION=true 或传 includeOption 恢复
+const INCLUDE_OPTION_DEFAULT = String(process.env.ECHARTS_RETURN_OPTION || 'false').toLowerCase() === 'true';
 const DATA_MAX_ROWS = parseInt(process.env.ECHARTS_DATA_MAX_ROWS || '60', 10) || 60;
 // 内联模式：'none'(纯文本) | 'inline'(data URI + http + file, 默认) | 'file'(仅 file://, ZCode) | 'all'(返回所有格式, 用于测试) | 'cdn'(公网https, WorkBuddy)
 const INLINE_MODE = (process.env.ECHARTS_INLINE_MODE || 'inline').toLowerCase();
 const DATA_URI_MAX = parseInt(process.env.ECHARTS_DATA_URI_MAX || String(48 * 1024), 10) || 48 * 1024;
 
 const TYPE_NAMES = { bar: '柱状图', line: '折线图', pie: '饼图' };
-const SERVER = { name: 'search2chart-mcp', version: '0.4.0' };
+const SERVER = { name: 'search2chart-mcp', version: require('./package.json').version };
 const VALID_TYPES = ['auto', 'bar', 'line', 'pie'];
 const VALID_PALETTES = Object.keys(PALETTES);
+
+// --- 临时文件清理策略：3 天 TTL + 数量上限，每 10 分钟最多扫一次 ---
+const CHART_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const CHART_MAX_FILES = 500;
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+let lastCleanupAt = 0;
 
 // --- 工具定义 ---
 const TOOLS = [
@@ -44,7 +52,8 @@ const TOOLS = [
         height: { type: 'number', default: 420, description: '图表高度(px)' },
         returnHtml: { type: 'boolean', default: false, description: '是否额外返回 HTML 原文' },
         returnImage: { type: 'boolean', default: RETURN_IMAGE_DEFAULT, description: '是否返回 image content block (SVG, 部分客户端不支持会报错)' },
-        returnData: { type: 'boolean', default: RETURN_DATA_DEFAULT, description: '是否附带清洗后的完整数据 (JSON)' }
+        returnData: { type: 'boolean', default: RETURN_DATA_DEFAULT, description: '是否附带清洗后的完整数据 (JSON)' },
+        includeOption: { type: 'boolean', default: INCLUDE_OPTION_DEFAULT, description: '是否附带完整 ECharts option JSON（体积较大，默认省略）' }
       },
       required: ['data']
     }
@@ -64,7 +73,8 @@ const TOOLS = [
         height: { type: 'number', default: 420 },
         returnHtml: { type: 'boolean', default: false },
         returnImage: { type: 'boolean', default: RETURN_IMAGE_DEFAULT },
-        returnData: { type: 'boolean', default: RETURN_DATA_DEFAULT }
+        returnData: { type: 'boolean', default: RETURN_DATA_DEFAULT },
+        includeOption: { type: 'boolean', default: INCLUDE_OPTION_DEFAULT }
       },
       required: ['filePath']
     }
@@ -92,6 +102,28 @@ function toolResult(content) {
 function resolveOutputDir() {
   return process.env.ECHARTS_CHARTS_DIR || path.join(os.tmpdir(), 'echarts-charts');
 }
+// 过期或超额的旧图表文件异步清理，不阻塞出图主流程
+function cleanupChartDir(dir) {
+  const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+  setTimeout(() => {
+    let files;
+    try { files = fs.readdirSync(dir).filter(f => /^chart_/.test(f)).map(f => {
+      const full = path.join(dir, f);
+      let m = 0;
+      try { m = fs.statSync(full).mtimeMs; } catch (e) { /* 已被删除 */ }
+      return { full, m };
+    }).filter(x => x.m > 0); } catch (e) { return; }
+    for (const f of files) {
+      if (now - f.m > CHART_TTL_MS) { try { fs.unlinkSync(f.full); } catch (e) { /* ignore */ } }
+    }
+    const kept = files.filter(f => now - f.m <= CHART_TTL_MS).sort((a, b) => a.m - b.m);
+    for (let i = 0; i <= kept.length - CHART_MAX_FILES; i++) {
+      try { fs.unlinkSync(kept[i].full); } catch (e) { /* ignore */ }
+    }
+  }, 0).unref();
+}
 function writeChartFile(ext, content, title) {
   const dir = resolveOutputDir();
   try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { /* 重试在 writeFileSync 报错 */ }
@@ -99,6 +131,7 @@ function writeChartFile(ext, content, title) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = path.join(dir, `chart_${base}_${stamp}.${ext}`);
   fs.writeFileSync(file, content, 'utf8');
+  cleanupChartDir(dir);
   return file;
 }
 function toFileUrl(absPath) { return pathToFileURL(absPath).href; }
@@ -118,7 +151,7 @@ function buildDataBlock(table, maxRows) {
 async function makeChart(args, table) {
   const chartType = args.chartType || 'auto';
   const type = chartType === 'auto' ? inferType(table) : chartType;
-  const { categories, seriesList } = extractSeries(table);
+  const { categories, seriesList, ignored } = extractSeries(table);
   const title = args.title || '';
   const paletteName = args.palette || 'default';
   const palette = PALETTES[paletteName] || PALETTES.default;
@@ -152,10 +185,10 @@ async function makeChart(args, table) {
         fileUrl = toFileUrl(svgPath);
       } catch (e) { /* 写入失败则 fileUrl 为空 */ }
 
-      // 优先级4: CDN 公网 https（兜底，适合 WorkBuddy 等只放行公网的客户端）
-      // 触发条件：显式 cdn 模式，或 data URI 太大且 localhost 不可用时自动兜底
-      const needCdn = INLINE_MODE === 'cdn' || (!dataUri && !httpUrl && rasterizeAvailable());
-      if (needCdn && rasterizeAvailable()) {
+      // 优先级4: CDN 公网 https（仅显式 INLINE_MODE=cdn 时启用）
+      // 图表含用户数据，上传到公网 GitHub 仓库属数据外发行为，不做自动兜底，
+      // 需要在 MCP 配置中显式设置 env.ECHARTS_INLINE_MODE=cdn（详见 README 隐私说明）。
+      if (INLINE_MODE === 'cdn' && rasterizeAvailable()) {
         try {
           const { rasterize } = require('./lib/rasterize');
           const png = rasterize(svg);
@@ -194,6 +227,10 @@ async function makeChart(args, table) {
   let summary = `图表已生成：\n${filePath}\n`;
   summary += `类型：${typeName}（${type}）| 标题="${title}" | 配色=${paletteName} | ${width}x${height}\n`;
   summary += `数据：${categories.length} 个类别；序列：${seriesPreview}\n`;
+  if (ignored.length) {
+    const cols = [...new Set(ignored.map(i => i.column))].join('、');
+    summary += `注意：${ignored.length} 个非数值单元格已置为空值（列：${cols}），图表按缺失值处理而非 0。\n`;
+  }
   if (INLINE_MODE === 'all' && allLines.length) {
     summary += `【内联出图测试·原样复制全部行到回复】把以下所有行原样复制到回复，看哪张图正常显示：\n${allLines.join('\n')}\n`;
     summary += `\n【自动检测·Agent 指令】用户指出能渲染的编号后，按以下映射设置模式：\n`;
@@ -220,7 +257,9 @@ async function makeChart(args, table) {
   if (args.returnData !== false) {
     try { content.push({ type: 'text', text: buildDataBlock(table, DATA_MAX_ROWS) }); } catch (e) { /* ignore */ }
   }
-  content.push({ type: 'text', text: 'ECharts option (JSON):\n```json\n' + JSON.stringify(option) + '\n```' });
+  if ((args.includeOption === undefined ? INCLUDE_OPTION_DEFAULT : args.includeOption) === true) {
+    content.push({ type: 'text', text: 'ECharts option (JSON):\n```json\n' + JSON.stringify(option) + '\n```' });
+  }
 
   return toolResult(content);
 }
@@ -240,6 +279,9 @@ async function handleCall(msg) {
       const abs = path.isAbsolute(args.filePath) ? args.filePath : path.resolve(process.cwd(), args.filePath);
       const rows = parseFile(abs, args.sheet);
       if (!rows[0] || rows.length < 2) throw new Error('文件为空或无数据');
+      const colN = rows[0].length;
+      const bad = rows.findIndex((r, i) => i > 0 && r.length !== colN);
+      if (bad > 0) throw new Error(`第 ${bad + 1} 行有 ${rows[bad].length} 列，与表头 ${colN} 列不一致，请检查源文件`);
       return ok(id, await makeChart(args, { columns: rows[0], rows: rows.slice(1) }));
     }
     if (name === 'list_chart_types') {

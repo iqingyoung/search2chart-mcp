@@ -45,10 +45,15 @@ function ghRequest(method, path, body) {
   });
 }
 
+/** 清理目标过滤：仅「.png 命名且类型为 file」的图表文件（uploadPNG 只写 .png，type 用于挡目录项） */
+function isChartFile(f) {
+  return f.name.endsWith('.png') && f.type === 'file';
+}
+
 async function listCharts() {
   try {
     const r = await ghRequest('GET', `/repos/${REPO}/contents/charts?ref=${BRANCH}`);
-    return Array.isArray(r) ? r.filter(f => f.name.endsWith('.png' || f.type === 'file')) : [];
+    return Array.isArray(r) ? r.filter(isChartFile) : [];
   } catch (e) {
     return [];
   }
@@ -102,4 +107,4 @@ async function uploadChart(pngBytes, title) {
   return result;
 }
 
-module.exports = { uploadChart, cleanupOldFiles, listCharts, CDN_PREFIX, REPO };
+module.exports = { uploadChart, cleanupOldFiles, listCharts, isChartFile, CDN_PREFIX, REPO };

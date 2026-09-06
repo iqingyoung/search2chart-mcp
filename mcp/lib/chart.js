@@ -13,6 +13,13 @@ function toTable(data, columns) {
       columns = data[0];
       rows = data.slice(1);
     }
+    // 列数一致性：参差数据会让后续取列行为含糊，尽早报错
+    if (columns) {
+      const bad = rows.findIndex(r => r.length !== columns.length);
+      if (bad >= 0) {
+        throw new Error(`第 ${bad + 1} 行有 ${rows[bad].length} 列，与表头 ${columns.length} 列不一致，请检查数据`);
+      }
+    }
   } else if (typeof data[0] === 'object' && data[0] !== null) {
     if (!columns) columns = Object.keys(data[0]);
     rows = data.map(o => columns.map(c => o[c]));
@@ -24,27 +31,34 @@ function toTable(data, columns) {
 }
 
 // 从表格抽取类别轴 + 多个数值序列
+// 非数值单元格不再静默归 0（掩盖脏数据），置为 null 并计入 ignored 供 summary 提示
 function extractSeries(table) {
   const { columns, rows } = table;
+  const ignored = [];
   const categories = rows.map(r => String(r[0] == null ? '' : r[0]));
   const seriesList = columns.slice(1).map((name, idx) => ({
     name: String(name),
-    data: rows.map(r => {
-      const v = parseFloat(r[idx + 1]);
-      return isNaN(v) ? 0 : v;
+    data: rows.map((r, ri) => {
+      const raw = r[idx + 1];
+      const v = parseFloat(raw);
+      if (isNaN(v)) {
+        ignored.push({ row: ri + 1, column: String(name), value: raw });
+        return null;
+      }
+      return v;
     })
   }));
   if (seriesList.length === 0) {
     throw new Error('至少需要两列（类别 + 数值）才能绘图');
   }
-  return { categories, seriesList };
+  return { categories, seriesList, ignored };
 }
 
 // 自动推断图表类型
 function inferType(table) {
   const { seriesList } = extractSeries(table);
   const values = seriesList[0].data;
-  const allPositive = values.every(v => v >= 0);
+  const allPositive = values.every(v => v === null || v >= 0);
   const smallCardinality = table.rows.length <= 12;
   // 类别少且都为正 -> 适合饼图；否则默认柱状
   if (smallCardinality && allPositive && seriesList.length === 1) return 'pie';

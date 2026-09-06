@@ -53,7 +53,7 @@ function renderBar(spec, width, height, colors) {
   const padL = 56, padR = 16, padT = spec.title ? 44 : 22, padB = 46;
   const plotW = width - padL - padR, plotH = height - padT - padB;
   const { categories, seriesList } = spec;
-  const all = seriesList.flatMap((s) => s.data);
+  const all = seriesList.flatMap((s) => s.data).filter((v) => v != null);
   const maxV = niceMax(Math.max(0, ...all));
   let s = axes(spec.title, width, height, padL, padR, padT, padB, plotW, plotH, maxV);
   const n = categories.length || 1;
@@ -62,6 +62,7 @@ function renderBar(spec, width, height, colors) {
   seriesList.forEach((se, si) => {
     const c = colors[si % colors.length];
     se.data.forEach((v, ci) => {
+      if (v == null) return; // 缺失值不画柱
       const cx = padL + band * (ci + 0.5);
       const x = cx - (seriesList.length * bw) / 2 + si * bw;
       const y = padT + plotH * (1 - v / maxV);
@@ -80,16 +81,27 @@ function renderLine(spec, width, height, colors) {
   const padL = 56, padR = 16, padT = spec.title ? 44 : 22, padB = 46;
   const plotW = width - padL - padR, plotH = height - padT - padB;
   const { categories, seriesList } = spec;
-  const all = seriesList.flatMap((s) => s.data);
+  const all = seriesList.flatMap((s) => s.data).filter((v) => v != null);
   const maxV = niceMax(Math.max(0, ...all));
   let s = axes(spec.title, width, height, padL, padR, padT, padB, plotW, plotH, maxV);
   const n = categories.length;
   const xAt = (i) => padL + (n <= 1 ? plotW / 2 : (plotW * i) / (n - 1));
   seriesList.forEach((se, si) => {
     const c = colors[si % colors.length];
-    const pts = se.data.map((v, i) => `${xAt(i).toFixed(1)},${(padT + plotH * (1 - v / maxV)).toFixed(1)}`).join(' ');
-    s += `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2.4"/>`;
+    // 缺失值断线：按连续非空段分别绘制
+    const segs = [];
+    let seg = [];
     se.data.forEach((v, i) => {
+      if (v == null) { if (seg.length) segs.push(seg); seg = []; return; }
+      seg.push(`${xAt(i).toFixed(1)},${(padT + plotH * (1 - v / maxV)).toFixed(1)}`);
+    });
+    if (seg.length) segs.push(seg);
+    segs.forEach((pts) => {
+      if (pts.length < 2) return;
+      s += `<polyline points="${pts.join(' ')}" fill="none" stroke="${c}" stroke-width="2.4"/>`;
+    });
+    se.data.forEach((v, i) => {
+      if (v == null) return;
       s += `<circle cx="${xAt(i).toFixed(1)}" cy="${(padT + plotH * (1 - v / maxV)).toFixed(1)}" r="3" fill="${c}"/>`;
     });
   });
@@ -103,11 +115,12 @@ function renderLine(spec, width, height, colors) {
 function renderPie(spec, width, height, colors) {
   const { categories, seriesList } = spec;
   const se = seriesList[0] || { name: '', data: [] };
-  const total = se.data.reduce((a, b) => a + b, 0) || 1;
+  const total = se.data.reduce((a, b) => a + (b ?? 0), 0) || 1;
   const cx = width * 0.36, cy = height * 0.52, r = Math.min(width * 0.26, height * 0.34);
   let s = spec.title ? `<text x="${width / 2}" y="22" text-anchor="middle" font-size="16" font-family="sans-serif" font-weight="600" fill="#1f2329">${esc(spec.title)}</text>` : '';
   let ang = -Math.PI / 2;
   se.data.forEach((v, i) => {
+    if (v == null) return; // 缺失值不占扇区
     const a2 = ang + (2 * Math.PI * v) / total;
     const large = a2 - ang > Math.PI ? 1 : 0;
     const x1 = cx + r * Math.cos(ang), y1 = cy + r * Math.sin(ang);

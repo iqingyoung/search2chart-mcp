@@ -12,10 +12,15 @@ const PALETTES = {
 };
 
 // 决定 echarts 加载方式：本地 vendor 内联（离线/沙箱友好）> CDN
+// vendor 文件约 1MB，读取一次后缓存，避免每张图都同步读盘
+let vendorCache = null;
 function getLoader() {
-  const vendor = path.join(__dirname, '..', 'vendor', 'echarts.min.js');
-  if (fs.existsSync(vendor)) {
-    return '<script>' + fs.readFileSync(vendor, 'utf8') + '</script>';
+  if (vendorCache === null) {
+    const vendor = path.join(__dirname, '..', 'vendor', 'echarts.min.js');
+    vendorCache = fs.existsSync(vendor) ? fs.readFileSync(vendor, 'utf8') : false;
+  }
+  if (vendorCache !== false) {
+    return '<script>' + vendorCache + '</script>';
   }
   return '<script src="' + ECHARTS_CDN + '"></script>';
 }
@@ -60,6 +65,8 @@ window.addEventListener('DOMContentLoaded',function(){
 });`;
 
 function renderHTML(opts) {
+  const width = opts.width || 720;
+  const height = opts.height || 420;
   const payload = {
     title: opts.title || '',
     categories: opts.categories,
@@ -67,8 +74,8 @@ function renderHTML(opts) {
     palettes: PALETTES,
     defaultType: opts.defaultType,
     defaultPalette: opts.defaultPalette || 'default',
-    width: opts.width || 720,
-    height: opts.height || 420
+    width,
+    height
   };
   // 防止 JSON 中的 </script> 提前闭合
   const json = JSON.stringify(payload).replace(/</g, '\\u003c');
@@ -77,7 +84,7 @@ function renderHTML(opts) {
     '<style>body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:12px;background:#fafaf7;color:#222}' +
     '#controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:13px;color:#444}' +
     '#controls label{display:flex;gap:4px;align-items:center}#controls select,#controls input{font-size:13px;padding:3px 6px;border:1px solid #d9d9d9;border-radius:6px}' +
-    '#chart{width:720px;height:420px;max-width:100%}</style>\n' +
+    `#chart{width:${width}px;height:${height}px;max-width:100%}</style>\n` +
     getLoader() + '\n</head>\n<body>\n' +
     '<div id="controls">' +
     '<label>类型 <select id="type"><option value="bar">柱状图</option><option value="line">折线图</option><option value="pie">饼图</option></select></label>' +
